@@ -3,7 +3,14 @@ import { z } from 'zod';
 import type { WeatherCacheStore } from '../cache/cacheStore.js';
 import { logger, redactSecretsInText } from '../logger.js';
 import { DECISION_SUPPORT_DISCLAIMER_TH } from '../normalizers/weatherNormalizer.js';
+import {
+  checkXweatherCapabilities,
+  getErrorCapabilities,
+  getMockCapabilities,
+} from '../services/capabilityService.js';
 import { findCommunityById, loadCommunities } from '../services/communityService.js';
+import type { XweatherClient } from '../services/xweatherClient.js';
+import { getMockRiskResult } from '../services/riskService.js';
 import type { WeatherService } from '../services/weatherService.js';
 import { XweatherClientError } from '../services/xweatherClient.js';
 import type { CommunityWeatherBundle } from '../types/weather.js';
@@ -16,12 +23,100 @@ const CommunityIdParamSchema = z
 
 export interface ApiRouterDeps {
   weatherService: WeatherService;
+  xweatherClient: XweatherClient;
   cacheStore: WeatherCacheStore<CommunityWeatherBundle>;
   hasXweatherCredentials: boolean;
 }
 
 export function createApiRouter(deps: ApiRouterDeps): Router {
   const router = Router();
+
+  /**
+   * GET /api/capabilities
+   * Probes endpoints at the first configured community; mock statuses are used without credentials.
+   */
+  router.get('/capabilities', async (_req: Request, res: Response) => {
+    if (!deps.xweatherClient.hasCredentials()) {
+      res.status(200).json(getMockCapabilities());
+      return;
+    }
+
+    try {
+      const [community] = await loadCommunities();
+      if (!community) {
+        res.status(200).json(getErrorCapabilities());
+        return;
+      }
+      const capabilities = await checkXweatherCapabilities(deps.xweatherClient, community);
+      res.status(200).json(capabilities);
+    } catch (error: unknown) {
+      const safeMessage = redactSecretsInText(
+        error instanceof Error ? error.message : String(error)
+      );
+      logger.error({ err: safeMessage }, 'Failed to check API capabilities');
+      res.status(200).json(getErrorCapabilities());
+    }
+  });
+
+  router.get('/map/tiles/:z/:x/:y.png', async (req: Request, res: Response) => {
+    const zValue = Number(req.params['z']);
+    const xValue = Number(req.params['x']);
+    const yValue = Number(req.params['y']);
+    if (
+      !Number.isInteger(zValue) ||
+      !Number.isInteger(xValue) ||
+      !Number.isInteger(yValue) ||
+      zValue < 0 ||
+      zValue > 19 ||
+      xValue < 0 ||
+      yValue < 0 ||
+      xValue >= 2 ** zValue ||
+      yValue >= 2 ** zValue
+    ) {
+      res.status(400).json({
+        error: { code: 'INVALID_TILE', messageTh: 'พิกัดแผนที่ไม่ถูกต้อง' },
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const tileResponse = await fetch(
+        `https://tile.openstreetmap.org/${zValue}/${xValue}/${yValue}.png`,
+        {
+          headers: {
+            Accept: 'image/png',
+            'User-Agent': 'RainBurstEarlyWarning/0.1 (community weather dashboard)',
+          },
+          signal: controller.signal,
+        }
+      );
+      if (!tileResponse.ok) {
+        logger.warn({ statusCode: tileResponse.status }, 'OpenStreetMap tile request failed');
+        res.status(502).json({
+          error: { code: 'MAP_TILE_UNAVAILABLE', messageTh: 'โหลดแผนที่ไม่สำเร็จ' },
+        });
+        return;
+      }
+      res
+        .status(200)
+        .set('Content-Type', 'image/png')
+        .set('Cache-Control', 'public, max-age=3600')
+        .set('X-Content-Type-Options', 'nosniff')
+        .send(Buffer.from(await tileResponse.arrayBuffer()));
+    } catch (error: unknown) {
+      logger.warn(
+        { errorName: error instanceof Error ? error.name : 'UnknownError' },
+        'OpenStreetMap tile proxy failed'
+      );
+      res.status(502).json({
+        error: { code: 'MAP_TILE_UNAVAILABLE', messageTh: 'โหลดแผนที่ไม่สำเร็จ' },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
 
   /**
    * GET /api/health
@@ -38,6 +133,43 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       cache: cacheStats,
       disclaimerTh: DECISION_SUPPORT_DISCLAIMER_TH,
     });
+  });
+
+  router.get('/risk/:communityId', async (req: Request, res: Response) => {
+    const parsedParam = CommunityIdParamSchema.safeParse(req.params['communityId']);
+    if (!parsedParam.success) {
+      res.status(400).json({
+        error: { code: 'INVALID_COMMUNITY_ID', messageTh: 'รหัสชุมชนไม่ถูกต้อง' },
+      });
+      return;
+    }
+
+    try {
+      const community = await findCommunityById(parsedParam.data);
+      if (!community) {
+        res.status(404).json({
+          error: { code: 'COMMUNITY_NOT_FOUND', messageTh: 'ไม่พบข้อมูลชุมชน' },
+        });
+        return;
+      }
+
+      const result = await getMockRiskResult(community.id);
+      if (!result) {
+        res.status(404).json({
+          error: { code: 'RISK_RESULT_NOT_FOUND', messageTh: 'ยังไม่มีตัวอย่างคะแนนของชุมชนนี้' },
+        });
+        return;
+      }
+      res.status(200).json(result);
+    } catch (error: unknown) {
+      const safeMessage = redactSecretsInText(
+        error instanceof Error ? error.message : String(error)
+      );
+      logger.error({ communityId: parsedParam.data, err: safeMessage }, 'Failed to load mock risk result');
+      res.status(500).json({
+        error: { code: 'RISK_RESULT_ERROR', messageTh: 'โหลดตัวอย่างคะแนนไม่สำเร็จ' },
+      });
+    }
   });
 
   /**

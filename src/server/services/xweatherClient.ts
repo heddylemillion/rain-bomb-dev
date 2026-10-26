@@ -1,4 +1,4 @@
-import type { ZodType } from 'zod';
+import { z, type ZodType, type ZodTypeDef } from 'zod';
 import { logger, redactSecretsInText } from '../logger.js';
 import {
   XweatherConditionEnvelopeSchema,
@@ -39,6 +39,18 @@ export class XweatherClientError extends Error {
     this.redactedUrl = redactSecretsInText(params.redactedUrl);
   }
 }
+
+const CapabilityProbeSchema = z.object({
+  success: z.boolean(),
+  error: z
+    .object({
+      code: z.string().optional(),
+      description: z.string().optional(),
+    })
+    .nullable()
+    .optional(),
+  response: z.union([z.array(z.unknown()), z.record(z.unknown())]),
+});
 
 export interface XweatherClientOptions {
   baseUrl: string;
@@ -93,10 +105,11 @@ export class XweatherClient {
     return headers;
   }
 
-  private async requestAndValidate<T extends { success: boolean; error?: { code?: string; description?: string } | null; response: unknown[] }>(
+  private async requestAndValidate<T extends { success: boolean; error?: { code?: string; description?: string } | null }>(
     endpointPath: string,
     queryParams: Record<string, string>,
-    schema: ZodType<T>
+    schema: ZodType<T, ZodTypeDef, unknown>,
+    allowEmptyResponse = false
   ): Promise<T> {
     if (!this.hasCredentials()) {
       throw new XweatherClientError({
@@ -183,9 +196,13 @@ export class XweatherClient {
         });
       }
 
-      if (!Array.isArray(envelopeObj.response) || envelopeObj.response.length === 0) {
+      const hasResponse =
+        Array.isArray(envelopeObj.response)
+          ? envelopeObj.response.length > 0
+          : envelopeObj.response !== null && typeof envelopeObj.response === 'object';
+      if (!hasResponse && !allowEmptyResponse) {
         throw new XweatherClientError({
-          message: `Xweather returned an empty response array for ${endpointPath}`,
+          message: `Xweather returned an empty response for ${endpointPath}`,
           kind: 'EMPTY_RESPONSE',
           statusCode: res.status,
           apiErrorCode: errCode,
@@ -236,6 +253,15 @@ export class XweatherClient {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  public async probeEndpoint(endpointPath: string): Promise<void> {
+    await this.requestAndValidate(
+      endpointPath,
+      {},
+      CapabilityProbeSchema,
+      true
+    );
   }
 
   public async fetchHourlyForecast(lat: number, lon: number, limit = 24): Promise<XweatherForecastEnvelope> {

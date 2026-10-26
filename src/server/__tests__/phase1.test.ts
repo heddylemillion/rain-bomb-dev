@@ -68,8 +68,10 @@ describe('Phase 1 — Backend Normalization, Cache, Redaction & API Routes', () 
     expect(redacted).toContain('client_secret=***REDACTED***');
   });
 
-  it('GET /api/health and GET /api/communities return expected shapes', async () => {
-    const app = createApp();
+  it('GET /api/health, /api/communities and /api/capabilities return expected shapes', async () => {
+    const app = createApp({
+      config: loadConfig({ NODE_ENV: 'test' }),
+    });
 
     const healthRes = await request(app).get('/api/health');
     expect(healthRes.status).toBe(200);
@@ -82,6 +84,38 @@ describe('Phase 1 — Backend Normalization, Cache, Redaction & API Routes', () 
     expect(commRes.body.communities[0]).toMatchObject({
       id: 'khlong-luang-1',
       calibration_status: 'TO BE CALIBRATED',
+    });
+
+    const capabilitiesRes = await request(app).get('/api/capabilities');
+    expect(capabilitiesRes.status).toBe(200);
+    expect(capabilitiesRes.body.isMock).toBe(true);
+    expect(capabilitiesRes.body.capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'current-conditions',
+          available: true,
+          reason: 'ok',
+          checkedAt: expect.any(String),
+        }),
+        expect.objectContaining({
+          id: 'official-alerts',
+          available: false,
+          reason: 'error',
+          checkedAt: expect.any(String),
+        }),
+      ])
+    );
+
+    const riskRes = await request(app).get('/api/risk/khlong-luang-1');
+    expect(riskRes.status).toBe(200);
+    expect(riskRes.body).toMatchObject({
+      communityId: 'khlong-luang-1',
+      score: 74,
+      level: 'HIGH',
+      alertType: 'URGENT',
+      confidence: 'LOW',
+      isMock: true,
+      calibrationStatus: 'TO BE CALIBRATED',
     });
   });
 

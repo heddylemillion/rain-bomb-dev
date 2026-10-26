@@ -105,7 +105,7 @@ export const XweatherForecastEnvelopeSchema = z.object({
 /**
  * 3) Schema สำหรับ /observations
  * หมายเหตุจากผลจริง Phase 0:
- * - response เป็น Array ของสถานี (เช่น id: "VTBD", dataSource: "METAR_NOAA")
+ * - ตัวอย่างที่บันทึกไว้มี response เป็น object เดียว; schema รองรับทั้ง object และ array
  * - windGustKPH, ceilingM, uvi, snowDepthCM เป็น null ได้
  * - weatherCoded เป็น string (เช่น "::SC") ไม่ใช่ array
  */
@@ -167,7 +167,9 @@ export const XweatherObservationItemSchema = z.object({
 export const XweatherObservationEnvelopeSchema = z.object({
   success: z.boolean(),
   error: XweatherErrorSchema.nullable().optional(),
-  response: z.array(XweatherObservationItemSchema),
+  response: z
+    .union([z.array(XweatherObservationItemSchema), XweatherObservationItemSchema])
+    .transform((response) => (Array.isArray(response) ? response : [response])),
 });
 
 /**
@@ -216,7 +218,9 @@ export const XweatherConditionItemSchema = z.object({
 export const XweatherConditionEnvelopeSchema = z.object({
   success: z.boolean(),
   error: XweatherErrorSchema.nullable().optional(),
-  response: z.array(XweatherConditionItemSchema),
+  response: z
+    .union([z.array(XweatherConditionItemSchema), XweatherConditionItemSchema])
+    .transform((response) => (Array.isArray(response) ? response : [response])),
 });
 
 export type XweatherForecastEnvelope = z.infer<typeof XweatherForecastEnvelopeSchema>;

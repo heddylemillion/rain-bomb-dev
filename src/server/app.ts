@@ -88,6 +88,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
     '/api',
     createApiRouter({
       weatherService,
+      xweatherClient,
       cacheStore,
       hasXweatherCredentials: xweatherClient.hasCredentials(),
     })
