@@ -1,0 +1,53 @@
+{
+  "_comment": "TO BE CALIBRATED — ข้อมูลชุมชนนำร่อง อ.คลองหลวง จ.ปทุมธานี (ค่าพารามิเตอร์ทางอุทกวิทยาเป็นค่าเริ่มต้นเพื่อรอการสอบเทียบจริง)",
+  "communities": [
+    {
+      "id": "khlong-luang-1",
+      "name_th": "ชุมชนริมคลองหนึ่ง (ตลาดคลองหลวง)",
+      "name_en": "Khlong Nueng Canal Community (Khlong Luang Market)",
+      "lat": 14.0647,
+      "lon": 100.6186,
+      "elevation_m": 2.5,
+      "soil_group": "D",
+      "drainage_capacity_mm_hr": 25.0,
+      "canal_station_id": null,
+      "calibration_status": "TO BE CALIBRATED"
+    },
+    {
+      "id": "khlong-luang-2",
+      "name_th": "ชุมชนริมคลองสอง (บางขัน-คลองหลวง)",
+      "name_en": "Khlong Song Canal Community (Bang Khan)",
+      "lat": 14.0662,
+      "lon": 100.6385,
+      "elevation_m": 2.3,
+      "soil_group": "D",
+      "drainage_capacity_mm_hr": 22.0,
+      "canal_station_id": null,
+      "calibration_status": "TO BE CALIBRATED"
+    },
+    {
+      "id": "khlong-luang-3",
+      "name_th": "ชุมชนริมคลองสาม (คลองสามตอนล่าง)",
+      "name_en": "Khlong Sam Canal Community",
+      "lat": 14.0631,
+      "lon": 100.6632,
+      "elevation_m": 2.1,
+      "soil_group": "D",
+      "drainage_capacity_mm_hr": 20.0,
+      "canal_station_id": null,
+      "calibration_status": "TO BE CALIBRATED"
+    },
+    {
+      "id": "khlong-rangsit-prayurasakdi",
+      "name_th": "ชุมชนตลาดริมคลองรังสิตประยูรศักดิ์ (รอยต่อคลองหลวง)",
+      "name_en": "Khlong Rangsit Prayurasakdi Canal Market",
+      "lat": 13.9875,
+      "lon": 100.6155,
+      "elevation_m": 1.8,
+      "soil_group": "D",
+      "drainage_capacity_mm_hr": 18.0,
+      "canal_station_id": null,
+      "calibration_status": "TO BE CALIBRATED"
+    }
+  ]
+}

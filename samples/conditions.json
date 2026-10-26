@@ -1,0 +1,87 @@
+{
+  "success": true,
+  "error": null,
+  "response": [
+    {
+      "loc": {
+        "lat": 14.0647,
+        "long": 100.6186
+      },
+      "place": {
+        "name": "khlong luang",
+        "state": "pt",
+        "country": "th"
+      },
+      "periods": [
+        {
+          "timestamp": 1793005860,
+          "dateTimeISO": "2026-10-26T16:11:00+07:00",
+          "tempC": 30.74,
+          "tempF": 87.32,
+          "feelslikeC": 37.22,
+          "feelslikeF": 99,
+          "wetBulbGlobeTempC": 28.97,
+          "wetBulbGlobeTempF": 84.15,
+          "dewpointC": 24.9,
+          "dewpointF": 76.82,
+          "humidity": 71,
+          "pressureMB": 1008.4,
+          "pressureIN": 29.78,
+          "windDir": "E",
+          "windDirDEG": 88,
+          "windSpeedKTS": 2.5,
+          "windSpeedKPH": 4.63,
+          "windSpeedMPH": 2.88,
+          "windSpeedMPS": 1.29,
+          "windGustKTS": 3.32,
+          "windGustKPH": 6.16,
+          "windGustMPH": 3.83,
+          "windGustMPS": 1.71,
+          "precipMM": 0,
+          "precipIN": 0,
+          "precipRateMM": 0.03,
+          "precipRateIN": 0.0012000000000001,
+          "snowCM": 0,
+          "snowIN": 0,
+          "snowRateCM": 0,
+          "snowRateIN": 0,
+          "snowDepthCM": 0,
+          "snowDepthIN": 0,
+          "pop": 100,
+          "visibilityKM": 12.433,
+          "visibilityMI": 7.725,
+          "sky": 27,
+          "cloudsCoded": "FW",
+          "weather": "Showers",
+          "weatherCoded": ":VL:RW",
+          "weatherPrimary": "Showers",
+          "weatherPrimaryCoded": ":VL:RW",
+          "icon": "pcloudyr.png",
+          "solradWM2": 298,
+          "uvi": 1,
+          "isDay": true,
+          "spressureMB": 1007.6,
+          "spressureIN": 29.75,
+          "altimeterMB": 1008.1,
+          "altimeterIN": 29.77,
+          "solrad": {
+            "azimuthDEG": 249.822,
+            "zenithDEG": 67.1191,
+            "ghiWM2": 298.1978,
+            "dniWM2": 468.4079,
+            "dhiWM2": 116.0731,
+            "version": "v2"
+          }
+        }
+      ],
+      "profile": {
+        "tz": "Asia/Bangkok",
+        "tzname": "+07",
+        "tzoffset": 25200,
+        "isDST": false,
+        "elevM": 7,
+        "elevFT": 23
+      }
+    }
+  ]
+}
