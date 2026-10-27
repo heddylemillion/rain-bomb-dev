@@ -54,6 +54,8 @@ const CapabilityProbeSchema = z.object({
 
 export interface XweatherClientOptions {
   baseUrl: string;
+  /** Raster Maps host. UNVERIFIED default: https://maps.api.xweather.com */
+  mapsBaseUrl?: string;
   clientId: string;
   clientSecret: string;
   namespace?: string;
@@ -61,8 +63,13 @@ export interface XweatherClientOptions {
   fetchImpl?: typeof fetch;
 }
 
+export type RasterTileResult =
+  | { ok: true; body: Buffer; contentType: string }
+  | { ok: false; status: number | null };
+
 export class XweatherClient {
   private readonly baseUrl: string;
+  private readonly mapsBaseUrl: string;
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly namespace: string;
@@ -71,6 +78,7 @@ export class XweatherClient {
 
   constructor(options: XweatherClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
+    this.mapsBaseUrl = (options.mapsBaseUrl ?? 'https://maps.api.xweather.com').replace(/\/$/, '');
     this.clientId = options.clientId.trim();
     this.clientSecret = options.clientSecret.trim();
     this.namespace = (options.namespace ?? '').trim();
@@ -262,6 +270,51 @@ export class XweatherClient {
       CapabilityProbeSchema,
       true
     );
+  }
+
+  /**
+   * Fetches one Xweather Raster Maps PNG tile.
+   * URL pattern (UNVERIFIED against the live plan): {mapsBase}/{id}_{secret}/{layer}/{z}/{x}/{y}/{offset}.png
+   * The credentialed URL is never logged or returned; callers only get bytes or a status code.
+   * Callers must pass already-validated layer/offset values.
+   */
+  public async fetchRasterTile(params: {
+    layer: string;
+    z: number;
+    x: number;
+    y: number;
+    offset: string;
+  }): Promise<RasterTileResult> {
+    if (!this.hasCredentials()) {
+      return { ok: false, status: null };
+    }
+    const { layer, z, x, y, offset } = params;
+    const url = `${this.mapsBaseUrl}/${encodeURIComponent(this.clientId)}_${encodeURIComponent(
+      this.clientSecret
+    )}/${layer}/${z}/${x}/${y}/${offset}.png`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const headers: Record<string, string> = { Accept: 'image/png', 'User-Agent': 'RainBomb-Backend/0.1.0' };
+      if (this.namespace.length > 0) {
+        const origin =
+          this.namespace.startsWith('http://') || this.namespace.startsWith('https://')
+            ? this.namespace
+            : `https://${this.namespace}`;
+        headers['Origin'] = origin;
+        headers['Referer'] = `${origin}/`;
+      }
+      const res = await this.fetchImpl(url, { method: 'GET', headers, signal: controller.signal });
+      const contentType = res.headers.get('content-type') ?? '';
+      if (!res.ok || !contentType.toLowerCase().startsWith('image/')) {
+        return { ok: false, status: res.status };
+      }
+      return { ok: true, body: Buffer.from(await res.arrayBuffer()), contentType };
+    } catch {
+      return { ok: false, status: null };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   public async fetchHourlyForecast(lat: number, lon: number, limit = 24): Promise<XweatherForecastEnvelope> {

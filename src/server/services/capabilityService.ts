@@ -4,6 +4,7 @@ import type {
   CapabilityId,
 } from '../../shared/contracts.js';
 import type { CommunityConfig } from '../types/weather.js';
+import { PROBE_TILE, XWEATHER_LAYER_CODE } from './overlayLayers.js';
 import { XweatherClient, XweatherClientError } from './xweatherClient.js';
 
 const MOCK_STATUS_BY_ID: ReadonlyArray<{
@@ -115,20 +116,53 @@ function combineEndpointChecks(
     : { id, available: true, reason: 'ok', checkedAt };
 }
 
+/**
+ * Requests one raster tile for a Thailand-centred probe coordinate.
+ * 200 + image/* => account can fetch the layer. It does NOT prove radar actually covers Thailand
+ * (an empty transparent tile is also a 200), so coverage remains UNVERIFIED.
+ */
+async function checkRasterLayer(
+  client: XweatherClient,
+  id: CapabilityId,
+  layer: keyof typeof XWEATHER_LAYER_CODE,
+  checkedAt: string
+): Promise<Capability> {
+  const result = await client.fetchRasterTile({
+    layer: XWEATHER_LAYER_CODE[layer],
+    ...PROBE_TILE,
+    offset: 'current',
+  });
+  if (result.ok) {
+    return { id, available: true, reason: 'ok', checkedAt };
+  }
+  const reason: Capability['reason'] =
+    result.status === 401 || result.status === 403
+      ? 'no_plan'
+      : result.status === 404
+        ? 'no_coverage'
+        : 'error';
+  return { id, available: false, reason, checkedAt };
+}
+
 export async function checkXweatherCapabilities(
   client: XweatherClient,
   community: CommunityConfig
 ): Promise<CapabilitiesResponse> {
   const checkedAt = new Date().toISOString();
   const location = `${community.lat},${community.lon}`;
-  const checks = await Promise.all([
-    checkEndpoint(client, 'hourly-forecast', `/forecasts/${location}?filter=1hr`, checkedAt),
-    checkEndpoint(client, 'daily-forecast', `/forecasts/${location}?filter=day`, checkedAt),
-    checkEndpoint(client, 'observations', `/observations/${location}`, checkedAt),
-    checkEndpoint(client, 'current-conditions', `/conditions/${location}`, checkedAt),
-    checkEndpoint(client, 'official-alerts', `/alerts/${location}`, checkedAt),
-    checkEndpoint(client, 'lightning-strikes', `/lightning/${location}`, checkedAt),
-    checkEndpoint(client, 'lightning-threats', `/lightning/threats/${location}`, checkedAt),
+  const [checks, radarTile, lightningTile, stormTile] = await Promise.all([
+    Promise.all([
+      checkEndpoint(client, 'hourly-forecast', `/forecasts/${location}?filter=1hr`, checkedAt),
+      checkEndpoint(client, 'daily-forecast', `/forecasts/${location}?filter=day`, checkedAt),
+      checkEndpoint(client, 'observations', `/observations/${location}`, checkedAt),
+      checkEndpoint(client, 'current-conditions', `/conditions/${location}`, checkedAt),
+      checkEndpoint(client, 'official-alerts', `/alerts/${location}`, checkedAt),
+      checkEndpoint(client, 'lightning-strikes', `/lightning/${location}`, checkedAt),
+      checkEndpoint(client, 'lightning-threats', `/lightning/threats/${location}`, checkedAt),
+    ]),
+    checkRasterLayer(client, 'radar-layer', 'radar', checkedAt),
+    checkRasterLayer(client, 'lightning', 'lightning', checkedAt),
+    checkRasterLayer(client, 'tropical-cyclones', 'storm', checkedAt),
   ]);
 
   const byId = new Map(checks.map((check) => [check.id, check]));
@@ -148,7 +182,8 @@ export async function checkXweatherCapabilities(
           checkedAt,
         };
 
-  const lightningChecks = [strikes, threats].filter(
+  // The map's lightning layer needs the raster tile too, so include it in the aggregate.
+  const lightningChecks = [strikes, threats, lightningTile].filter(
     (check): check is Capability => check !== undefined
   );
   const capabilities: Capability[] = [
@@ -167,11 +202,11 @@ export async function checkXweatherCapabilities(
       reason: 'error',
       checkedAt,
     },
-    { id: 'tropical-cyclones', available: false, reason: 'error', checkedAt },
+    stormTile,
     { id: 'air-quality', available: false, reason: 'error', checkedAt },
     { id: 'history-calibration', available: false, reason: 'error', checkedAt },
     { id: 'alert-history', available: false, reason: 'error', checkedAt },
-    { id: 'radar-layer', available: false, reason: 'error', checkedAt },
+    radarTile,
     { id: 'satellite-layer', available: false, reason: 'error', checkedAt },
     { id: 'canal-level', available: false, reason: 'error', checkedAt },
     { id: 'tide', available: false, reason: 'error', checkedAt },

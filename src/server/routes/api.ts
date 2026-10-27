@@ -13,6 +13,12 @@ import type { XweatherClient } from '../services/xweatherClient.js';
 import { getMockRiskResult } from '../services/riskService.js';
 import type { WeatherService } from '../services/weatherService.js';
 import { XweatherClientError } from '../services/xweatherClient.js';
+import {
+  hoursToXweatherOffset,
+  isOverlayLayerId,
+  parseOverlayHours,
+  XWEATHER_LAYER_CODE,
+} from '../services/overlayLayers.js';
 import type { CommunityWeatherBundle } from '../types/weather.js';
 
 const CommunityIdParamSchema = z
@@ -116,6 +122,57 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     } finally {
       clearTimeout(timer);
     }
+  });
+
+  /**
+   * GET /api/map/overlay/:layer/:hours/:z/:x/:y.png
+   * Proxies Xweather Raster Maps tiles (radar / lightning / storm). Credentials are added here only.
+   * Availability is decided by /api/capabilities; this route just fails closed with 404.
+   */
+  router.get('/map/overlay/:layer/:hours/:z/:x/:y.png', async (req: Request, res: Response) => {
+    const layer = String(req.params['layer']);
+    const hours = parseOverlayHours(String(req.params['hours']));
+    const z = Number(req.params['z']);
+    const x = Number(req.params['x']);
+    const y = Number(req.params['y']);
+    if (
+      !isOverlayLayerId(layer) ||
+      hours === null ||
+      !Number.isInteger(z) ||
+      !Number.isInteger(x) ||
+      !Number.isInteger(y) ||
+      z < 0 ||
+      z > 12 ||
+      x < 0 ||
+      y < 0 ||
+      x >= 2 ** z ||
+      y >= 2 ** z
+    ) {
+      res.status(400).json({
+        error: { code: 'INVALID_TILE', messageTh: 'พิกัดแผนที่ไม่ถูกต้อง' },
+      });
+      return;
+    }
+
+    const tile = await deps.xweatherClient.fetchRasterTile({
+      layer: XWEATHER_LAYER_CODE[layer],
+      z,
+      x,
+      y,
+      offset: hoursToXweatherOffset(hours),
+    });
+    if (!tile.ok) {
+      res.status(404).json({
+        error: { code: 'OVERLAY_TILE_UNAVAILABLE', messageTh: 'ไม่มีข้อมูลชั้นแผนที่นี้' },
+      });
+      return;
+    }
+    res
+      .status(200)
+      .set('Content-Type', tile.contentType)
+      .set('Cache-Control', 'public, max-age=120')
+      .set('X-Content-Type-Options', 'nosniff')
+      .send(tile.body);
   });
 
   /**

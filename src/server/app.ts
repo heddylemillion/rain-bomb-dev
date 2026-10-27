@@ -69,11 +69,28 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use(express.json({ limit: '100kb' }));
 
   // Rate limiting สำหรับ /api/*
+  // Map tiles are many small requests per view, so they get their own (higher) limit
+  // instead of exhausting the shared data-API budget below.
+  const mapTileLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 4000,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: {
+      error: {
+        code: 'RATE_LIMIT_EXCEEDED',
+        messageTh: 'คุณเรียกใช้งานบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่อีกครั้ง',
+      },
+    },
+  });
+  app.use('/api/map', mapTileLimiter);
+
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 นาที
     limit: 120,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
+    skip: (req) => req.path.startsWith('/map/'),
     message: {
       error: {
         code: 'RATE_LIMIT_EXCEEDED',

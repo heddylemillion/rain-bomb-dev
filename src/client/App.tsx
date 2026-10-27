@@ -12,6 +12,11 @@ const OverviewPage = lazy(() =>
     default: module.OverviewPage,
   }))
 );
+const MorePage = lazy(() =>
+  import('./pages/MorePage.js').then((module) => ({
+    default: module.MorePage,
+  }))
+);
 const SystemStatusPage = lazy(() =>
   import('./pages/SystemStatusPage.js').then((module) => ({
     default: module.SystemStatusPage,
@@ -37,7 +42,7 @@ export function App(): React.ReactNode {
           <Route path="forecast" element={<ModulePlaceholderPage />} />
           <Route path="alerts" element={<ModulePlaceholderPage />} />
           <Route path="history" element={<ModulePlaceholderPage />} />
-          <Route path="more" element={<ModulePlaceholderPage />} />
+          <Route path="more" element={<MorePage />} />
           <Route path="method" element={<ModulePlaceholderPage />} />
           <Route path="settings" element={<ModulePlaceholderPage />} />
           <Route path="system-status" element={<SystemStatusPage />} />
