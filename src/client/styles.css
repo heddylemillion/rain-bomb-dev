@@ -1271,6 +1271,19 @@ button:disabled {
   gap: 0.7rem;
 }
 
+.soil-location {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.soil-mock-badge {
+  border: var(--border-w) solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
 /* ---- first-visit prompt ---- */
 .first-visit-backdrop {
   position: absolute;
@@ -1474,7 +1487,8 @@ button:disabled {
     grid-template-columns: minmax(0, min(30rem, 100%)) minmax(0, 1fr);
     grid-template-areas:
       'notices notices'
-      'card slider';
+      'card slider'
+      'soil slider';
     align-items: end;
   }
 
@@ -1491,6 +1505,10 @@ button:disabled {
     border-left-width: 0.5rem;
     max-height: calc(100dvh - 12rem);
     box-shadow: var(--shadow);
+  }
+
+  .soil-card {
+    grid-area: soil;
   }
 
   .status-high {
@@ -2130,6 +2148,7 @@ body {
     left: 8px;
     width: min(360px, calc(100vw - 16px));
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: none;
   }
 
   .status-card {

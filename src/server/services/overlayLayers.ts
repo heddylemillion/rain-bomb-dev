@@ -4,7 +4,7 @@ import { RADAR_OFFSET_HOURS, type OverlayLayerId } from '../../shared/contracts.
  * Xweather Raster Maps layer codes per map overlay.
  * UNVERIFIED: codes come from public docs summaries, not from a successful call on this plan.
  */
-export const XWEATHER_LAYER_CODE: Record<OverlayLayerId, string> = {
+export const XWEATHER_LAYER_CODE: Record<Exclude<OverlayLayerId, 'soil'>, string> = {
   radar: 'radar',
   lightning: 'lightning-strikes',
   storm: 'tropical-cyclones',
@@ -13,7 +13,7 @@ export const XWEATHER_LAYER_CODE: Record<OverlayLayerId, string> = {
 /** z=6 tile covering central Thailand (Pathum Thani ≈ 14.06N, 100.62E). Used only for availability probes. */
 export const PROBE_TILE = { z: 6, x: 49, y: 30 } as const;
 
-export function isOverlayLayerId(value: string): value is OverlayLayerId {
+export function isOverlayLayerId(value: string): value is Exclude<OverlayLayerId, 'soil'> {
   return value === 'radar' || value === 'lightning' || value === 'storm';
 }
 

@@ -18,6 +18,7 @@ import {
 import { StatusCard } from '../components/StatusCard.js';
 import { useTranslation } from '../i18n.js';
 import { readStorage, writeStorage } from '../lib/storage.js';
+import { getMockSoilProfile } from '../lib/soil.js';
 
 const LOCATION_CHOICE_KEY = 'rain-burst-location-choice';
 const THAILAND_BOUNDS = { minLat: 5.5, maxLat: 20.5, minLon: 97, maxLon: 106 };
@@ -85,7 +86,7 @@ function rememberPlace(place: GeocodingResult): void {
 }
 
 export function OverviewPage(): React.ReactNode {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [place, setPlace] = useState<SelectedPlace | null>(() => initialPlace(searchParams));
   const [activeLayers, setActiveLayers] = useState<ReadonlySet<MapLayerId>>(() => new Set<MapLayerId>(['risk']));
@@ -118,6 +119,10 @@ export function OverviewPage(): React.ReactNode {
     () => place ? makePointCommunity(place) : null,
     [place]
   );
+  const soilProfile = useMemo(
+    () => place ? getMockSoilProfile(place.lat, place.lon) : null,
+    [place]
+  );
   const capabilities = capabilityQuery.data?.capabilities;
   const getCapability = useCallback(
     (id: CapabilityId) => capabilities?.find((capability) => capability.id === id),
@@ -125,12 +130,12 @@ export function OverviewPage(): React.ReactNode {
   );
   const layerAvailability: LayerAvailability[] = (['risk', 'radar', 'lightning', 'storm', 'soil'] as const).map((id) => {
     const capability = getCapability(id === 'risk' ? 'risk-summary' : OVERLAY_CAPABILITY_ID[id as OverlayLayerId]);
-    return { id, available: id === 'risk' || capability?.available === true, reason: capability?.reason ?? 'error' };
+    return { id, available: id === 'risk' || id === 'soil' || capability?.available === true, reason: capability?.reason ?? 'error' };
   });
   const availableLayers = new Set(layerAvailability.filter((item) => item.available).map((item) => item.id));
   const effectiveLayers = new Set([...activeLayers].filter((id) => availableLayers.has(id)));
   const overlays = new Set(
-    [...effectiveLayers].filter((id): id is OverlayLayerId => id !== 'risk')
+    [...effectiveLayers].filter((id): id is OverlayLayerId => id !== 'risk' && id !== 'soil')
   );
   const risks = useMemo(() => {
     const map = new Map<string, RiskResult>();
@@ -360,6 +365,26 @@ export function OverviewPage(): React.ReactNode {
               isMock={statusRisk?.isMock ?? false}
               pointNotice={statusRisk?.usesDefaultTraits || (place && !statusRisk) ? t('pointRiskNotice') : null}
             />
+          )}
+          {selectedCommunity && soilProfile && effectiveLayers.has('soil') && (
+            <section className="status-card soil-card" aria-labelledby="soil-info-title">
+              <div className="status-head">
+                <h2 id="soil-info-title" className="status-community">{t('soilInfoTitle')}</h2>
+                <span className="soil-mock-badge">{t('mockBadge')}</span>
+              </div>
+              <p className="soil-location">
+                {language === 'th' ? selectedCommunity.name_th : selectedCommunity.name_en} · {place?.lat.toFixed(3)}, {place?.lon.toFixed(3)}
+              </p>
+              <dl className="detail-grid">
+                <dt>{t('soilType')}</dt>
+                <dd>{language === 'th' ? soilProfile.nameTh : soilProfile.nameEn}</dd>
+                <dt>{t('soilGroup')}</dt>
+                <dd>{soilProfile.group}</dd>
+                <dt>{t('soilDrainage')}</dt>
+                <dd>{language === 'th' ? soilProfile.drainageTh : soilProfile.drainageEn}</dd>
+              </dl>
+              <p className="status-mock-note">{t('soilMockNotice')}</p>
+            </section>
           )}
           {!showRisk && (
             <section className="status-card status-card-hint" aria-label={t('layerRisk')}>

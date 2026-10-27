@@ -31,6 +31,7 @@ const MOCK_STATUS_BY_ID: ReadonlyArray<{
   { id: 'canal-level', available: false, reason: 'error' },
   { id: 'tide', available: false, reason: 'error' },
   { id: 'dem', available: false, reason: 'error' },
+  { id: 'soil-condition', available: true, reason: 'ok' },
 ];
 
 export function getMockCapabilities(
@@ -211,6 +212,7 @@ export async function checkXweatherCapabilities(
     { id: 'canal-level', available: false, reason: 'error', checkedAt },
     { id: 'tide', available: false, reason: 'error', checkedAt },
     { id: 'dem', available: false, reason: 'error', checkedAt },
+    { id: 'soil-condition', available: true, reason: 'ok', checkedAt },
   ];
 
   return { capabilities, checkedAt, isMock: false };
