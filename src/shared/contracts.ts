@@ -143,16 +143,39 @@ export const RiskResultSchema = z.object({
   score: z.number().int().min(0).max(100),
   level: z.enum(['HIGH', 'MEDIUM', 'LOW']),
   alertType: z.enum(['URGENT', 'ADVANCE', 'NONE']),
-  confidence: z.literal('LOW'),
+  confidence: z.enum(['LOW', 'MEDIUM', 'HIGH']),
   factorIds: z.array(RiskFactorIdSchema),
   inputIds: z.array(RiskFactorIdSchema),
   recommendedActionId: z.enum(['HIGH', 'MEDIUM', 'LOW']),
   generatedAt: z.string(),
-  isMock: z.literal(true),
+  isMock: z.boolean(),
   calibrationStatus: z.string(),
 });
 
 export type RiskResult = z.infer<typeof RiskResultSchema>;
+
+export const GeocodingResultSchema = z.object({
+  lat: z.number().min(5.5).max(20.5),
+  lon: z.number().min(97).max(106),
+  name: z.string(),
+  district: z.string(),
+  province: z.string(),
+  displayName: z.string(),
+});
+export type GeocodingResult = z.infer<typeof GeocodingResultSchema>;
+
+export const PointRiskResponseSchema = RiskResultSchema.extend({
+  inputsUsed: z.object({
+    forecastRain: z.number().nullable(),
+    forecastProbability: z.number().nullable(),
+    currentRainRate: z.number().nullable(),
+    unavailable: z.array(z.string()),
+  }),
+  usesDefaultTraits: z.boolean(),
+  noticeTh: z.string().nullable(),
+  weather: WeatherBundleSchema,
+});
+export type PointRiskResponse = z.infer<typeof PointRiskResponseSchema>;
 
 export const CurrentConditionsSchema = z.object({
   loc: z.object({ lat: z.number(), long: z.number() }),
@@ -244,4 +267,3 @@ export const OVERLAY_CAPABILITY_ID: Record<OverlayLayerId, CapabilityId> = {
 
 /** Hour offsets offered by the radar time slider (negative = past). Offset syntax UNVERIFIED. */
 export const RADAR_OFFSET_HOURS = [-3, -2, -1, 0, 1, 2, 3] as const;
-

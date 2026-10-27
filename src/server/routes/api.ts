@@ -10,7 +10,7 @@ import {
 } from '../services/capabilityService.js';
 import { findCommunityById, loadCommunities } from '../services/communityService.js';
 import type { XweatherClient } from '../services/xweatherClient.js';
-import { getMockRiskResult } from '../services/riskService.js';
+import { calculatePointRisk, getMockRiskResult } from '../services/riskService.js';
 import type { WeatherService } from '../services/weatherService.js';
 import { XweatherClientError } from '../services/xweatherClient.js';
 import {
@@ -20,6 +20,7 @@ import {
   XWEATHER_LAYER_CODE,
 } from '../services/overlayLayers.js';
 import type { CommunityWeatherBundle } from '../types/weather.js';
+import type { GeocodingProvider } from '../services/geocodingProvider.js';
 
 const CommunityIdParamSchema = z
   .string()
@@ -32,10 +33,132 @@ export interface ApiRouterDeps {
   xweatherClient: XweatherClient;
   cacheStore: WeatherCacheStore<CommunityWeatherBundle>;
   hasXweatherCredentials: boolean;
+  geocodingProvider: GeocodingProvider;
 }
+
+export const PointQuerySchema = z.object({
+  lat: z.coerce.number().finite().min(5.5).max(20.5),
+  lon: z.coerce.number().finite().min(97).max(106),
+});
+
+export const GeocodeQuerySchema = z.object({
+  q: z.string().trim().min(3).max(120),
+  lang: z.enum(['th', 'en']).default('th'),
+});
 
 export function createApiRouter(deps: ApiRouterDeps): Router {
   const router = Router();
+
+  router.get('/geocode', async (req: Request, res: Response) => {
+    const parsed = GeocodeQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: { code: 'INVALID_QUERY', messageTh: 'กรุณาค้นหาด้วยคำอย่างน้อย 3 ตัวอักษร' } });
+      return;
+    }
+    try {
+      const results = await deps.geocodingProvider.search(parsed.data.q, parsed.data.lang);
+      res.status(200).json({ results });
+    } catch {
+      res.status(502).json({ error: { code: 'GEOCODING_UNAVAILABLE', messageTh: 'ค้นหาตำแหน่งไม่สำเร็จ กรุณาลองอีกครั้ง' } });
+    }
+  });
+
+  router.get('/reverse-geocode', async (req: Request, res: Response) => {
+    const parsed = PointQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
+      return;
+    }
+    try {
+      const result = await deps.geocodingProvider.reverse(parsed.data.lat, parsed.data.lon, 'th');
+      res.status(200).json({ result });
+    } catch {
+      res.status(502).json({ error: { code: 'GEOCODING_UNAVAILABLE', messageTh: 'ค้นหาชื่อตำแหน่งไม่สำเร็จ' } });
+    }
+  });
+
+  router.get('/risk', async (req: Request, res: Response) => {
+    const parsed = PointQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
+      return;
+    }
+    const lat = Number(parsed.data.lat.toFixed(2));
+    const lon = Number(parsed.data.lon.toFixed(2));
+    try {
+      const communities = await loadCommunities();
+      const matching = communities.find((community) => {
+        const distanceKm = Math.hypot(
+          (community.lat - lat) * 111,
+          (community.lon - lon) * 111 * Math.cos((lat * Math.PI) / 180)
+        );
+        return distanceKm <= 1;
+      });
+      const place = matching ?? {
+        id: 'selected-point',
+        name_th: 'ตำแหน่งที่เลือก',
+        name_en: 'Selected location',
+        lat,
+        lon,
+        elevation_m: 0,
+        soil_group: 'C' as const,
+        drainage_capacity_mm_hr: 50,
+        canal_station_id: null,
+        calibration_status: 'DEFAULT TRAITS',
+      };
+      const weatherPlace = {
+        ...place,
+        id: `point-${lat.toFixed(2)}-${lon.toFixed(2)}`,
+        lat,
+        lon,
+      };
+      const weather = await deps.weatherService.getCommunityWeather(weatherPlace);
+      const maxRain = weather.hourly.reduce((max, point) => Math.max(max, point.precipMM), 0);
+      const maxPop = weather.hourly.reduce((max, point) => Math.max(max, point.pop), 0);
+      const evaluated = calculatePointRisk(
+        {
+          forecastRain: weather.hourly.length > 0 ? maxRain : null,
+          forecastProbability: weather.hourly.length > 0 ? maxPop : null,
+          currentRainRate: weather.current.rainRateMmPerHr,
+        },
+        matching !== undefined
+      );
+      const level = evaluated.level;
+      res.status(200).json({
+        communityId: matching?.id ?? weatherPlace.id,
+        score: evaluated.score,
+        level,
+        alertType: level === 'HIGH' ? 'URGENT' : level === 'MEDIUM' ? 'ADVANCE' : 'NONE',
+        confidence: evaluated.confidence,
+        factorIds: evaluated.factorIds,
+        inputIds: evaluated.factorIds,
+        recommendedActionId: level,
+        generatedAt: new Date().toISOString(),
+        isMock: weather.meta.isMock,
+        calibrationStatus: matching?.calibration_status ?? 'DEFAULT TRAITS',
+        inputsUsed: {
+          forecastRain: weather.hourly.length > 0 ? maxRain : null,
+          forecastProbability: weather.hourly.length > 0 ? maxPop : null,
+          currentRainRate: weather.current.rainRateMmPerHr,
+          unavailable: evaluated.unavailableInputs,
+        },
+        usesDefaultTraits: !matching,
+        noticeTh: matching ? null : 'ผลนี้คำนวณจากพยากรณ์ฝนเป็นหลัก ยังไม่มีข้อมูลพื้นที่เฉพาะจุด ความแม่นยำจึงต่ำกว่า',
+        weather,
+      });
+    } catch (error: unknown) {
+      if (error instanceof XweatherClientError) {
+        res.status(503).json({
+          error: {
+            code: `XWEATHER_${error.kind}`,
+            messageTh: 'ดึงข้อมูลพยากรณ์อากาศของตำแหน่งนี้ไม่สำเร็จ',
+          },
+        });
+        return;
+      }
+      res.status(503).json({ error: { code: 'RISK_UNAVAILABLE', messageTh: 'คำนวณความเสี่ยงของตำแหน่งนี้ไม่สำเร็จ' } });
+    }
+  });
 
   /**
    * GET /api/capabilities

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Community, RiskResult, WeatherBundle } from '../../shared/contracts.js';
+import type { Community, PointRiskResponse, RiskResult, WeatherBundle } from '../../shared/contracts.js';
 import { useTranslation } from '../i18n.js';
 import { LEVEL_KEYS, LEVEL_SYMBOL, formatClock } from '../lib/risk.js';
 
@@ -12,12 +12,13 @@ interface WeatherState {
 
 interface StatusCardProps {
   community: Community;
-  risk: RiskResult | undefined;
+  risk: RiskResult | PointRiskResponse | undefined;
   riskLoading: boolean;
   riskError: boolean;
   retryRisk: () => void;
   weather: WeatherState;
   isMock: boolean;
+  pointNotice?: string | null;
 }
 
 const speechSupported = (): boolean =>
@@ -42,6 +43,7 @@ export function StatusCard({
   retryRisk,
   weather,
   isMock,
+  pointNotice,
 }: StatusCardProps): React.ReactNode {
   const { t, language } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -101,9 +103,14 @@ export function StatusCard({
     if (!risk || !keys) {
       return;
     }
-    const pageUrl = `${window.location.origin}/?c=${encodeURIComponent(community.id)}`;
+    const pageUrl = new URL(window.location.href);
+    pageUrl.search = new URLSearchParams({
+      lat: String(community.lat),
+      lon: String(community.lon),
+      name: community.name_th,
+    }).toString();
     const text = `${t('shareText')} · ${community.name_th}: ${t(keys.status)} — ${t(keys.action)}${isMock ? ` (${t('mockBadge')})` : ''}`;
-    const shareUrl = `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(pageUrl)}&text=${encodeURIComponent(text)}`;
+    const shareUrl = `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(pageUrl.toString())}&text=${encodeURIComponent(text)}`;
     window.open(shareUrl, '_blank', 'noopener,noreferrer');
   };
 
@@ -150,9 +157,10 @@ export function StatusCard({
             <span>{t(keys.status)}</span>
           </p>
           <p className="status-action">
-            <span className="status-action-label">{t('whatToDo')}</span>
+            <span className="status-action-label">{t('whatToDo')}:</span>
             <strong>{t(keys.action)}</strong>
           </p>
+          {pointNotice && <p className="point-risk-notice">{pointNotice}</p>}
 
           <button
             type="button"
@@ -210,16 +218,24 @@ export function StatusCard({
                       : t('noAlert')}
                 </dd>
                 <dt>{t('detailConfidence')}</dt>
-                <dd>{risk.confidence === 'LOW' ? t('lowConfidence') : '—'}</dd>
+                <dd>{risk.confidence === 'LOW' ? t('lowConfidence') : t('mediumConfidence')}</dd>
                 <dt>{t('detailWeatherSource')}</dt>
                 <dd>
                   {weather.data?.meta.source ?? t('weatherSourcePending')}
                   {weather.data?.meta.isMock ? ` · ${t('mockBadge')}` : ''}
                 </dd>
                 <dt>{t('riskDataSource')}</dt>
-                <dd>{t('riskMockSource')}</dd>
+                <dd>{t('riskCalculatedSource')}</dd>
+                {'inputsUsed' in risk && (
+                  <>
+                    <dt>{t('inputsUnavailable')}</dt>
+                    <dd>{risk.inputsUsed.unavailable.length ? risk.inputsUsed.unavailable.join(', ') : t('none')}</dd>
+                  </>
+                )}
               </dl>
-              <p className="detail-plain">{t('calibrationMockNotice')}</p>
+              <p className="detail-plain">
+                {isMock ? t('calibrationMockNotice') : t('calibrationNotice')}
+              </p>
             </details>
           </div>
         </>

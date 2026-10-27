@@ -17,6 +17,7 @@ interface MapCanvasProps {
   showRisk: boolean;
   selectedCommunityId: string | null;
   onSelectCommunity: (communityId: string) => void;
+  onMapPick: (point: UserPosition) => void;
   overlays: ReadonlySet<OverlayLayerId>;
   radarHours: number;
   userPosition: UserPosition | null;
@@ -39,7 +40,7 @@ function markerIcon(level: RiskLevel, selected: boolean): L.DivIcon {
   if (cached) {
     return cached;
   }
-  const size = selected ? 64 : 44;
+  const size = selected ? 36 : 28;
   const icon = L.divIcon({
     className: 'risk-marker-wrapper',
     html: `<span class="risk-marker risk-marker-${level.toLowerCase()}${selected ? ' risk-marker-selected' : ''}" aria-hidden="true">${LEVEL_SYMBOL[level]}</span>`,
@@ -54,8 +55,8 @@ function clusterIcon(level: RiskLevel, count: number): L.DivIcon {
   return L.divIcon({
     className: 'risk-marker-wrapper',
     html: `<span class="risk-marker risk-marker-cluster risk-marker-${level.toLowerCase()}" aria-hidden="true"><span class="cluster-symbol">${LEVEL_SYMBOL[level]}</span><span class="cluster-count">${count}</span></span>`,
-    iconSize: [56, 56],
-    iconAnchor: [28, 28],
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
   });
 }
 
@@ -107,10 +108,12 @@ function RiskMarkers({
   items,
   selectedCommunityId,
   onSelectCommunity,
+  onMapPick,
 }: {
   items: readonly MarkerItem[];
   selectedCommunityId: string | null;
   onSelectCommunity: (communityId: string) => void;
+  onMapPick: (point: UserPosition) => void;
 }): React.ReactNode {
   const { t, language } = useTranslation();
   const [, setZoomTick] = useState(0);
@@ -136,8 +139,15 @@ function RiskMarkers({
               icon={markerIcon(risk.level, selected)}
               title={label}
               alt={label}
+              draggable={selected}
               zIndexOffset={selected ? 1000 : 0}
-              eventHandlers={{ click: () => onSelectCommunity(community.id) }}
+              eventHandlers={{
+                click: () => onSelectCommunity(community.id),
+                dragend: (event) => {
+                  const position = (event.target as L.Marker).getLatLng();
+                  onMapPick({ lat: position.lat, lon: position.lng });
+                },
+              }}
             />
           );
         }
@@ -201,6 +211,7 @@ export function MapCanvas({
   showRisk,
   selectedCommunityId,
   onSelectCommunity,
+  onMapPick,
   overlays,
   radarHours,
   userPosition,
@@ -210,7 +221,9 @@ export function MapCanvas({
   const { t } = useTranslation();
   const reduceMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
   const bounds = useMemo(
-    () => L.latLngBounds(communities.map((community) => L.latLng(community.lat, community.lon))).pad(0.35),
+    () => communities.length > 0
+      ? L.latLngBounds(communities.map((community) => L.latLng(community.lat, community.lon))).pad(0.35)
+      : L.latLngBounds([13.5, 99.5], [15.5, 102]).pad(0.4),
     [communities]
   );
   const items = useMemo<MarkerItem[]>(
@@ -239,6 +252,7 @@ export function MapCanvas({
       >
         <ExposeMap onMapReady={onMapReady} />
         <FollowSelection communities={communities} selectedCommunityId={selectedCommunityId} />
+        <MapClickHandler onMapPick={onMapPick} />
         <TileLayer
           url="/api/map/tiles/{z}/{x}/{y}.png"
           maxZoom={18}
@@ -263,18 +277,34 @@ export function MapCanvas({
             items={items}
             selectedCommunityId={selectedCommunityId}
             onSelectCommunity={onSelectCommunity}
+            onMapPick={onMapPick}
           />
         )}
-        {userPosition && (
+        {userPosition && (!showRisk || selectedCommunityId === null || !risks.has(selectedCommunityId)) && (
           <Marker
             position={[userPosition.lat, userPosition.lon]}
             icon={userIcon}
-            title={t('myLocation')}
-            alt={t('myLocation')}
-            keyboard={false}
+            title={t('selectedPoint')}
+            alt={t('selectedPoint')}
+            draggable
+            eventHandlers={{
+              dragend: (event) => {
+                const position = (event.target as L.Marker).getLatLng();
+                onMapPick({ lat: position.lat, lon: position.lng });
+              },
+            }}
           />
         )}
       </MapContainer>
     </div>
   );
+}
+
+function MapClickHandler({ onMapPick }: { onMapPick: (point: UserPosition) => void }): React.ReactNode {
+  useMapEvents({
+    click(event) {
+      onMapPick({ lat: event.latlng.lat, lon: event.latlng.lng });
+    },
+  });
+  return null;
 }

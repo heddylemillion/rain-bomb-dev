@@ -105,6 +105,7 @@ export function AppShell(): React.ReactNode {
         {!isMapRoute && <p className="disclaimer disclaimer-note">{t('footerCalibration')}</p>}
         {isMapRoute && (
           <p className="disclaimer disclaimer-note">
+            {t('locationPrivacy')} ·{' '}
             <a className="footer-link" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
               {t('mapAttribution')}
             </a>

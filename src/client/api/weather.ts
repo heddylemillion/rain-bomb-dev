@@ -1,9 +1,11 @@
 import {
   CommunitySchema,
+  GeocodingResultSchema,
+  PointRiskResponseSchema,
   RiskResultSchema,
   WeatherBundleSchema,
 } from '../../shared/contracts.js';
-import type { Community, RiskResult, WeatherBundle } from '../../shared/contracts.js';
+import type { Community, GeocodingResult, PointRiskResponse, RiskResult, WeatherBundle } from '../../shared/contracts.js';
 import { z } from 'zod';
 
 const CommunitiesResponseSchema = z.object({
@@ -44,4 +46,30 @@ export async function fetchCommunityWeather(
     signal
   );
   return WeatherBundleSchema.parse(payload);
+}
+
+export async function searchPlaces(query: string, signal: AbortSignal): Promise<GeocodingResult[]> {
+  const params = new URLSearchParams({ q: query, lang: 'th' });
+  const payload = await getJson(`/api/geocode?${params}`, signal);
+  return z.object({ results: z.array(GeocodingResultSchema) }).parse(payload).results;
+}
+
+export async function reverseGeocode(
+  lat: number,
+  lon: number,
+  signal: AbortSignal
+): Promise<GeocodingResult | null> {
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+  const payload = await getJson(`/api/reverse-geocode?${params}`, signal);
+  return z.object({ result: GeocodingResultSchema.nullable() }).parse(payload).result;
+}
+
+export async function fetchPointRisk(
+  lat: number,
+  lon: number,
+  signal: AbortSignal
+): Promise<PointRiskResponse> {
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+  const payload = await getJson(`/api/risk?${params}`, signal);
+  return PointRiskResponseSchema.parse(payload);
 }

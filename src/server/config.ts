@@ -21,6 +21,9 @@ const EnvSchema = z.object({
   XWEATHER_NAMESPACE: z.string().default(''),
   XWEATHER_BASE_URL: z.string().url().default('https://data.api.xweather.com'),
   XWEATHER_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
+  NOMINATIM_BASE_URL: z.string().url().default('https://nominatim.openstreetmap.org'),
+  NOMINATIM_USER_AGENT: z.string().trim().min(1).default('RainBomb/0.1.0 (community weather dashboard)'),
+  NOMINATIM_COUNTRYCODES: z.string().trim().default('th'),
   WEATHER_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
   CORS_ALLOWED_ORIGINS: z
     .string()
@@ -41,6 +44,11 @@ export interface AppConfig {
     namespace: string;
     baseUrl: string;
     timeoutMs: number;
+  };
+  geocoding: {
+    baseUrl: string;
+    userAgent: string;
+    countryCodes: string;
   };
   cacheTtlSeconds: number;
   corsAllowedOrigins: string[];
@@ -63,6 +71,11 @@ export function loadConfig(envInput: NodeJS.ProcessEnv = process.env): AppConfig
       namespace: parsed.XWEATHER_NAMESPACE.trim(),
       baseUrl: parsed.XWEATHER_BASE_URL.replace(/\/$/, ''),
       timeoutMs: parsed.XWEATHER_TIMEOUT_MS,
+    },
+    geocoding: {
+      baseUrl: parsed.NOMINATIM_BASE_URL.replace(/\/$/, ''),
+      userAgent: parsed.NOMINATIM_USER_AGENT,
+      countryCodes: parsed.NOMINATIM_COUNTRYCODES,
     },
     cacheTtlSeconds: parsed.WEATHER_CACHE_TTL_SECONDS,
     corsAllowedOrigins: origins,

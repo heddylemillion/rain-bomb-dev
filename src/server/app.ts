@@ -7,6 +7,8 @@ import { appConfig, type AppConfig } from './config.js';
 import { logger, redactSecretsInText } from './logger.js';
 import { createApiRouter } from './routes/api.js';
 import { WeatherService } from './services/weatherService.js';
+import { NominatimGeocodingProvider } from './services/geocodingProvider.js';
+import type { GeocodingProvider } from './services/geocodingProvider.js';
 import { XweatherClient } from './services/xweatherClient.js';
 import type { CommunityWeatherBundle } from './types/weather.js';
 
@@ -15,6 +17,7 @@ export interface CreateAppOptions {
   xweatherClient?: XweatherClient;
   cacheStore?: WeatherCacheStore<CommunityWeatherBundle>;
   weatherService?: WeatherService;
+  geocodingProvider?: GeocodingProvider;
 }
 
 export function createApp(options: CreateAppOptions = {}): Express {
@@ -108,6 +111,11 @@ export function createApp(options: CreateAppOptions = {}): Express {
       xweatherClient,
       cacheStore,
       hasXweatherCredentials: xweatherClient.hasCredentials(),
+      geocodingProvider: options.geocodingProvider ?? new NominatimGeocodingProvider({
+        baseUrl: cfg.geocoding.baseUrl,
+        userAgent: cfg.geocoding.userAgent,
+        countryCodes: cfg.geocoding.countryCodes,
+      }),
     })
   );
 

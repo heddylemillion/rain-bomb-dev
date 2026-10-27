@@ -23,7 +23,7 @@ export type CommunityConfig = z.infer<typeof CommunitySchema>;
 
 export const CommunitiesFileSchema = z.object({
   _comment: z.string().optional(),
-  communities: z.array(CommunitySchema).min(1),
+  communities: z.array(CommunitySchema),
 });
 
 /**

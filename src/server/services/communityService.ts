@@ -12,7 +12,15 @@ export async function loadCommunities(
     return cachedCommunities;
   }
 
-  const rawText = await fs.readFile(configPath, 'utf-8');
+  let rawText: string;
+  try {
+    rawText = await fs.readFile(configPath, 'utf-8');
+  } catch (error: unknown) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
   const rawJson: unknown = JSON.parse(rawText);
   const validated = CommunitiesFileSchema.parse(rawJson);
 
