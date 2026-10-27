@@ -47,6 +47,7 @@ const messages = {
     capabilityCanal: 'ระดับคลอง',
     capabilityTide: 'ระดับน้ำทะเล',
     capabilityElevation: 'ข้อมูลระดับพื้นที่',
+    capabilitySoil: 'สภาพดิน',
     loading: 'กำลังโหลดสถานะระบบ',
     loadingDescription: 'กำลังตรวจสอบความพร้อมของข้อมูล',
     loadFailed: 'โหลดสถานะระบบไม่สำเร็จ',
@@ -154,6 +155,7 @@ const messages = {
     layerRadar: 'เรดาร์ฝน',
     layerLightning: 'ฟ้าผ่า',
     layerStorm: 'พายุ',
+    layerSoil: 'สภาพดิน',
     layerOn: 'เปิดอยู่',
     layerOff: 'ปิดอยู่',
     layerUnavailable: 'ยังไม่รองรับในพื้นที่นี้',
@@ -276,6 +278,7 @@ const messages = {
     capabilityCanal: 'Canal level',
     capabilityTide: 'Tide level',
     capabilityElevation: 'Elevation data',
+    capabilitySoil: 'Soil condition',
     loading: 'Loading system status',
     loadingDescription: 'Checking available data',
     loadFailed: 'Could not load system status',
@@ -383,6 +386,7 @@ const messages = {
     layerRadar: 'Rain radar',
     layerLightning: 'Lightning',
     layerStorm: 'Storms',
+    layerSoil: 'Soil condition',
     layerOn: 'On',
     layerOff: 'Off',
     layerUnavailable: 'Not available in this area yet',
@@ -492,6 +496,7 @@ export const capabilityTitleKeyById = {
   'canal-level': 'capabilityCanal',
   tide: 'capabilityTide',
   dem: 'capabilityElevation',
+  'soil-condition': 'capabilitySoil',
 } as const satisfies Record<CapabilityId, keyof typeof messages.th>;
 
 interface LanguageContextValue {

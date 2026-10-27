@@ -94,6 +94,7 @@ const LAYER_LABEL: Record<MapLayerId, MessageKey> = {
   radar: 'layerRadar',
   lightning: 'layerLightning',
   storm: 'layerStorm',
+  soil: 'layerSoil',
 };
 
 const LAYER_ICON: Record<MapLayerId, string> = {
@@ -101,6 +102,7 @@ const LAYER_ICON: Record<MapLayerId, string> = {
   radar: '☔',
   lightning: '⚡',
   storm: '🌀',
+  soil: '🌱',
 };
 
 export interface LayerAvailability {

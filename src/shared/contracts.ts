@@ -222,6 +222,7 @@ export const CAPABILITY_IDS = [
   'canal-level',
   'tide',
   'dem',
+  'soil-condition',
 ] as const;
 
 export const CapabilityIdSchema = z.enum(CAPABILITY_IDS);
@@ -256,13 +257,14 @@ export type CapabilitiesResponse = z.infer<typeof CapabilitiesResponseSchema>;
  * Xweather layer codes are UNVERIFIED for this plan and for Thailand coverage;
  * the capability probe is the source of truth for whether a layer is shown.
  */
-export const OVERLAY_LAYER_IDS = ['radar', 'lightning', 'storm'] as const;
+export const OVERLAY_LAYER_IDS = ['radar', 'lightning', 'storm', 'soil'] as const;
 export type OverlayLayerId = (typeof OVERLAY_LAYER_IDS)[number];
 
 export const OVERLAY_CAPABILITY_ID: Record<OverlayLayerId, CapabilityId> = {
   radar: 'radar-layer',
   lightning: 'lightning',
   storm: 'tropical-cyclones',
+  soil: 'soil-condition',
 };
 
 /** Hour offsets offered by the radar time slider (negative = past). Offset syntax UNVERIFIED. */

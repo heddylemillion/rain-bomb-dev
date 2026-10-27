@@ -123,7 +123,7 @@ export function OverviewPage(): React.ReactNode {
     (id: CapabilityId) => capabilities?.find((capability) => capability.id === id),
     [capabilities]
   );
-  const layerAvailability: LayerAvailability[] = (['risk', 'radar', 'lightning', 'storm'] as const).map((id) => {
+  const layerAvailability: LayerAvailability[] = (['risk', 'radar', 'lightning', 'storm', 'soil'] as const).map((id) => {
     const capability = getCapability(id === 'risk' ? 'risk-summary' : OVERLAY_CAPABILITY_ID[id as OverlayLayerId]);
     return { id, available: id === 'risk' || capability?.available === true, reason: capability?.reason ?? 'error' };
   });
