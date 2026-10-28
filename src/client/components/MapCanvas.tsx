@@ -3,8 +3,9 @@ import L from 'leaflet';
 import { GeoJSON, MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Community, OverlayLayerId, RiskResult, SoilFeatureCollection, SoilInfo } from '../../shared/contracts.js';
-import { useTranslation } from '../i18n.js';
+import { useTranslation, type MessageKey } from '../i18n.js';
 import { LEVEL_KEYS, LEVEL_SYMBOL, worstLevel, type RiskLevel } from '../lib/risk.js';
+import { translateSoilName, translateSoilValue } from '../lib/soilLocalization.js';
 
 export interface UserPosition {
   lat: number;
@@ -55,10 +56,13 @@ function soilPathStyle(feature: { properties: SoilInfo } | undefined): L.PathOpt
 function bindSoilTooltip(
   feature: { properties: SoilInfo },
   layer: L.Layer,
-  noDataLabel: string
+  language: 'th' | 'en',
+  t: (key: MessageKey) => string
 ): void {
-  const { soilNameTh, soilCode, textureTh } = feature.properties;
-  layer.bindTooltip(`${soilNameTh} (${soilCode}) · ${textureTh || noDataLabel}`);
+  const { soilCode } = feature.properties;
+  const soilName = translateSoilName(feature.properties, language, t);
+  const texture = translateSoilValue(feature.properties.textureTh, language, t);
+  layer.bindTooltip(`${soilName} (${soilCode}) · ${texture}`);
 }
 
 const iconCache = new Map<string, L.DivIcon>();
@@ -308,7 +312,7 @@ export function MapCanvas({
             key={`soil-layer-${language}`}
             data={soilLayer}
             style={soilPathStyle}
-            onEachFeature={(feature, layer) => bindSoilTooltip(feature, layer, t('soilNoData'))}
+            onEachFeature={(feature, layer) => bindSoilTooltip(feature, layer, language, t)}
           />
         )}
         {showRisk && (

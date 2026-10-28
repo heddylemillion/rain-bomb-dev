@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { PointQuerySchema, GeocodeQuerySchema } from '../routes/api.js';
@@ -47,5 +47,22 @@ describe('location search and arbitrary-point risk', () => {
     const weatherFailure = await request(app).get('/api/risk?lat=14.06&lon=100.62');
     expect(weatherFailure.status).toBe(503);
     expect(weatherFailure.body.error.code).toContain('XWEATHER_');
+  });
+
+  it('passes the requested language to reverse geocoding', async () => {
+    const reverse = vi.fn(async (_lat: number, _lon: number, _language: string) => null);
+    const provider: GeocodingProvider = {
+      search: async () => [],
+      reverse,
+    };
+    const app = createApp({
+      config: loadConfig({ NODE_ENV: 'test' }),
+      geocodingProvider: provider,
+    });
+
+    const response = await request(app).get('/api/reverse-geocode?lat=14&lon=100.5&lang=en');
+
+    expect(response.status).toBe(200);
+    expect(reverse).toHaveBeenCalledWith(14, 100.5, 'en');
   });
 });

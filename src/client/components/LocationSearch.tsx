@@ -43,7 +43,7 @@ export function LocationSearch({
   onLocate: () => void;
   onSelect: (place: GeocodingResult) => void;
 }): React.ReactNode {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GeocodingResult[]>([]);
   const [recent, setRecent] = useState(readRecent);
@@ -62,17 +62,19 @@ export function LocationSearch({
   const suggestions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return communities
-      .filter((community) => !normalized || community.name_th.toLocaleLowerCase().includes(normalized))
+      .filter((community) => !normalized ||
+        community.name_th.toLocaleLowerCase().includes(normalized) ||
+        community.name_en.toLocaleLowerCase().includes(normalized))
       .slice(0, 4)
       .map((community) => ({
         lat: community.lat,
         lon: community.lon,
-        name: community.name_th,
+        name: language === 'th' ? community.name_th : community.name_en,
         district: '',
         province: '',
-        displayName: community.name_th,
+        displayName: language === 'th' ? community.name_th : community.name_en,
       }));
-  }, [communities, query]);
+  }, [communities, language, query]);
   const options = [...results, ...suggestions];
 
   const selectPlace = (place: GeocodingResult): void => {
@@ -98,7 +100,7 @@ export function LocationSearch({
     setActiveIndex(-1);
     try {
       const controller = new AbortController();
-      const found = await searchPlaces(trimmed, controller.signal);
+      const found = await searchPlaces(trimmed, controller.signal, language);
       setResults(found);
       if (found.length === 0) setError(t('searchNoResults'));
     } catch {
@@ -221,7 +223,7 @@ export function LocationSearch({
                   key={`recent:${place.lat}:${place.lon}`}
                   onClick={() => selectPlace(place)}
                 >
-                  <strong>{place.displayName}</strong>
+                  <strong>{language === 'en' && /[\u0E00-\u0E7F]/u.test(place.displayName) ? t('selectedPoint') : place.displayName}</strong>
                   <span>{t('recentPlace')}</span>
                 </button>
               ))}

@@ -46,6 +46,9 @@ export const GeocodeQuerySchema = z.object({
   q: z.string().trim().min(3).max(120),
   lang: z.enum(['th', 'en']).default('th'),
 });
+const ReverseGeocodeQuerySchema = PointQuerySchema.extend({
+  lang: z.enum(['th', 'en']).default('th'),
+});
 
 export function createApiRouter(deps: ApiRouterDeps): Router {
   const router = Router();
@@ -86,13 +89,13 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   });
 
   router.get('/reverse-geocode', async (req: Request, res: Response) => {
-    const parsed = PointQuerySchema.safeParse(req.query);
+    const parsed = ReverseGeocodeQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
       return;
     }
     try {
-      const result = await deps.geocodingProvider.reverse(parsed.data.lat, parsed.data.lon, 'th');
+      const result = await deps.geocodingProvider.reverse(parsed.data.lat, parsed.data.lon, parsed.data.lang);
       res.status(200).json({ result });
     } catch {
       res.status(502).json({ error: { code: 'GEOCODING_UNAVAILABLE', messageTh: 'ค้นหาชื่อตำแหน่งไม่สำเร็จ' } });

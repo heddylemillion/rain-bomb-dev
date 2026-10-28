@@ -48,8 +48,12 @@ export async function fetchCommunityWeather(
   return WeatherBundleSchema.parse(payload);
 }
 
-export async function searchPlaces(query: string, signal: AbortSignal): Promise<GeocodingResult[]> {
-  const params = new URLSearchParams({ q: query, lang: 'th' });
+export async function searchPlaces(
+  query: string,
+  signal: AbortSignal,
+  language: 'th' | 'en' = 'th'
+): Promise<GeocodingResult[]> {
+  const params = new URLSearchParams({ q: query, lang: language });
   const payload = await getJson(`/api/geocode?${params}`, signal);
   return z.object({ results: z.array(GeocodingResultSchema) }).parse(payload).results;
 }
@@ -57,9 +61,10 @@ export async function searchPlaces(query: string, signal: AbortSignal): Promise<
 export async function reverseGeocode(
   lat: number,
   lon: number,
-  signal: AbortSignal
+  signal: AbortSignal,
+  language: 'th' | 'en' = 'th'
 ): Promise<GeocodingResult | null> {
-  const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lon), lang: language });
   const payload = await getJson(`/api/reverse-geocode?${params}`, signal);
   return z.object({ result: GeocodingResultSchema.nullable() }).parse(payload).result;
 }

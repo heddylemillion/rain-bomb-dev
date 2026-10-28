@@ -17,8 +17,9 @@ import {
   type MapLayerId,
 } from '../components/MapOverlays.js';
 import { StatusCard } from '../components/StatusCard.js';
-import { useTranslation } from '../i18n.js';
+import { useTranslation, type MessageKey } from '../i18n.js';
 import { readStorage, writeStorage } from '../lib/storage.js';
+import { translateSoilName, translateSoilValue } from '../lib/soilLocalization.js';
 
 const LOCATION_CHOICE_KEY = 'rain-burst-location-choice';
 const THAILAND_BOUNDS = { minLat: 5.5, maxLat: 20.5, minLon: 97, maxLon: 106 };
@@ -34,11 +35,6 @@ function isInThailand(lat: number, lon: number): boolean {
     lon >= THAILAND_BOUNDS.minLon && lon <= THAILAND_BOUNDS.maxLon;
 }
 
-function soilDisplayValue(value: string, noDataLabel: string): string {
-  const normalized = value.trim();
-  return normalized && normalized !== '-' ? normalized : noDataLabel;
-}
-
 function initialPlace(params: URLSearchParams): SelectedPlace | null {
   const lat = Number(params.get('lat'));
   const lon = Number(params.get('lon'));
@@ -46,11 +42,16 @@ function initialPlace(params: URLSearchParams): SelectedPlace | null {
   return { lat, lon, name: params.get('name') || 'ตำแหน่งที่แชร์' };
 }
 
-function makePointCommunity(place: SelectedPlace): Community {
+function makePointCommunity(
+  place: SelectedPlace,
+  language: 'th' | 'en',
+  selectedPointLabel: string
+): Community {
+  const placeHasThai = /[\u0E00-\u0E7F]/u.test(place.name);
   return {
     id: `point-${place.lat.toFixed(2)}-${place.lon.toFixed(2)}`,
-    name_th: place.name,
-    name_en: place.name,
+    name_th: language === 'th' ? (placeHasThai ? place.name : selectedPointLabel) : place.name,
+    name_en: language === 'en' ? (placeHasThai ? selectedPointLabel : place.name) : place.name,
     lat: place.lat,
     lon: place.lon,
     elevation_m: 0,
@@ -99,12 +100,13 @@ export function OverviewPage(): React.ReactNode {
   const [radarHours, setRadarHours] = useState(0);
   const [baseTilesFailed, setBaseTilesFailed] = useState(false);
   const [locating, setLocating] = useState(false);
-  const [locationMessage, setLocationMessage] = useState('');
+  const [locationMessage, setLocationMessage] = useState<MessageKey | null>(null);
   const [consentChoice, setConsentChoice] = useState(() => readStorage(LOCATION_CHOICE_KEY) ?? '');
   const [focusSearchRequest, setFocusSearchRequest] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
   const initialLocationAttempt = useRef(false);
+  const resolvedLanguageLocation = useRef('');
 
   const capabilityQuery = useQuery({
     queryKey: ['capabilities'],
@@ -122,8 +124,8 @@ export function OverviewPage(): React.ReactNode {
   });
 
   const selectedCommunity = useMemo(
-    () => place ? makePointCommunity(place) : null,
-    [place]
+    () => place ? makePointCommunity(place, language, t('selectedPoint')) : null,
+    [language, place, t]
   );
   const capabilities = capabilityQuery.data?.capabilities;
   const getCapability = useCallback(
@@ -167,10 +169,10 @@ export function OverviewPage(): React.ReactNode {
 
   const choosePoint = useCallback((lat: number, lon: number, name: string): void => {
     if (!isInThailand(lat, lon)) {
-      setLocationMessage(t('pointOutsideThailand'));
+      setLocationMessage('pointOutsideThailand');
       return;
     }
-    setLocationMessage('');
+    setLocationMessage(null);
     const next = { lat, lon, name };
     rememberPlace({
       lat,
@@ -191,12 +193,12 @@ export function OverviewPage(): React.ReactNode {
 
   const reverseAndChoose = useCallback(async (lat: number, lon: number, fallback: string): Promise<void> => {
     if (!isInThailand(lat, lon)) {
-      setLocationMessage(t('pointOutsideThailand'));
+      setLocationMessage('pointOutsideThailand');
       return;
     }
     choosePoint(lat, lon, fallback);
     try {
-      const result = await reverseGeocode(lat, lon, new AbortController().signal);
+      const result = await reverseGeocode(lat, lon, new AbortController().signal, language);
       if (result) {
         const friendlyName = result.displayName || result.name;
         const resolved = { lat, lon, name: friendlyName };
@@ -205,23 +207,55 @@ export function OverviewPage(): React.ReactNode {
         rememberPlace(result);
       }
     } catch {
-      setLocationMessage(t('reverseGeocodeFailed'));
+      setLocationMessage('reverseGeocodeFailed');
     }
-  }, [choosePoint, setSearchParams, t]);
+  }, [choosePoint, language, setSearchParams, t]);
+
+  useEffect(() => {
+    if (!place) return;
+    const requestKey = `${place.lat}:${place.lon}:${language}`;
+    if (resolvedLanguageLocation.current === requestKey) return;
+    const placeHasThai = /[\u0E00-\u0E7F]/u.test(place.name);
+    if ((language === 'en' && !placeHasThai) || (language === 'th' && placeHasThai)) {
+      resolvedLanguageLocation.current = requestKey;
+      return;
+    }
+
+    resolvedLanguageLocation.current = requestKey;
+    const controller = new AbortController();
+    void reverseGeocode(place.lat, place.lon, controller.signal, language)
+      .then((result) => {
+        if (!result) return;
+        const localizedName = result.displayName || result.name;
+        setPlace((current) =>
+          current && current.lat === place.lat && current.lon === place.lon
+            ? { ...current, name: localizedName }
+            : current
+        );
+        setSearchParams({ lat: String(place.lat), lon: String(place.lon), name: localizedName });
+        rememberPlace(result);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setLocationMessage('reverseGeocodeFailed');
+        }
+      });
+    return () => controller.abort();
+  }, [language, place, setSearchParams, t]);
 
   const locate = useCallback((): void => {
     if (!window.isSecureContext && window.location.hostname !== 'localhost') {
-      setLocationMessage(t('locationInsecure'));
+      setLocationMessage('locationInsecure');
       setFocusSearchRequest((value) => value + 1);
       return;
     }
     if (!('geolocation' in navigator)) {
-      setLocationMessage(t('myLocationUnsupported'));
+      setLocationMessage('myLocationUnsupported');
       setFocusSearchRequest((value) => value + 1);
       return;
     }
     setLocating(true);
-    setLocationMessage('');
+    setLocationMessage(null);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setLocating(false);
@@ -234,10 +268,10 @@ export function OverviewPage(): React.ReactNode {
         if (error.code === 1) {
           setConsentChoice('denied');
           writeStorage(LOCATION_CHOICE_KEY, 'denied');
-          setLocationMessage(t('locationDeniedHelp'));
+          setLocationMessage('locationDeniedHelp');
           setFocusSearchRequest((value) => value + 1);
         } else {
-          setLocationMessage(error.code === 3 ? t('locationTimeout') : t('locationFailed'));
+          setLocationMessage(error.code === 3 ? 'locationTimeout' : 'locationFailed');
         }
       },
       { enableHighAccuracy: false, timeout: 10_000, maximumAge: 5 * 60_000 }
@@ -248,7 +282,7 @@ export function OverviewPage(): React.ReactNode {
     if (initialLocationAttempt.current || place || consentChoice === 'denied' || consentChoice === 'chose-search') return;
     initialLocationAttempt.current = true;
     if (!window.isSecureContext && window.location.hostname !== 'localhost') {
-      setLocationMessage(t('locationInsecure'));
+      setLocationMessage('locationInsecure');
       return;
     }
     let active = true;
@@ -258,7 +292,7 @@ export function OverviewPage(): React.ReactNode {
       if (permissionState === 'denied') {
         setConsentChoice('denied');
         writeStorage(LOCATION_CHOICE_KEY, 'denied');
-        setLocationMessage(t('locationDeniedHelp'));
+        setLocationMessage('locationDeniedHelp');
         setFocusSearchRequest((value) => value + 1);
       } else if (permissionState === 'granted' || (!consentChoice && permissionState === 'prompt')) {
         timer = window.setTimeout(locate, permissionState === 'granted' ? 0 : 700);
@@ -279,7 +313,7 @@ export function OverviewPage(): React.ReactNode {
 
   useEffect(() => {
     if (consentChoice === 'denied') {
-      setLocationMessage(t('locationDeniedHelp'));
+      setLocationMessage('locationDeniedHelp');
       setFocusSearchRequest((value) => value + 1);
     }
   }, [consentChoice, t]);
@@ -300,7 +334,7 @@ export function OverviewPage(): React.ReactNode {
   const chooseSearchInstead = (): void => {
     setConsentChoice('chose-search');
     writeStorage(LOCATION_CHOICE_KEY, 'chose-search');
-    setLocationMessage('');
+    setLocationMessage(null);
     setFocusSearchRequest((value) => value + 1);
   };
 
@@ -354,8 +388,8 @@ export function OverviewPage(): React.ReactNode {
               {capabilityQuery.isError && <p className="map-notice" role="status">{t('capabilityLoadWarning')}</p>}
               {locationMessage && (
                 <p className="map-notice" role="status">
-                  {locationMessage}
-                  {(locationMessage === t('locationTimeout') || locationMessage === t('locationFailed')) && (
+                  {t(locationMessage)}
+                  {(locationMessage === 'locationTimeout' || locationMessage === 'locationFailed') && (
                     <button type="button" className="inline-button" onClick={locate}>{t('locationRetry')}</button>
                   )}
                 </p>
@@ -413,17 +447,17 @@ export function OverviewPage(): React.ReactNode {
                 <>
                   <dl className="detail-grid">
                     <dt>{t('soilType')}</dt>
-                    <dd>{soilQuery.data.soil.soilNameTh} ({soilQuery.data.soil.soilCode})</dd>
+                    <dd>{translateSoilName(soilQuery.data.soil, language, t)} ({soilQuery.data.soil.soilCode})</dd>
                     <dt>{t('soilTexture')}</dt>
-                    <dd>{soilDisplayValue(soilQuery.data.soil.textureTh, t('soilNoData'))}</dd>
+                    <dd>{translateSoilValue(soilQuery.data.soil.textureTh, language, t)}</dd>
                     <dt>{t('soilPh')}</dt>
-                    <dd>{soilDisplayValue(soilQuery.data.soil.phTopTh, t('soilNoData'))}</dd>
+                    <dd>{translateSoilValue(soilQuery.data.soil.phTopTh, language, t)}</dd>
                     <dt>{t('soilFertility')}</dt>
-                    <dd>{soilDisplayValue(soilQuery.data.soil.fertilityTh, t('soilNoData'))}</dd>
+                    <dd>{translateSoilValue(soilQuery.data.soil.fertilityTh, language, t)}</dd>
                     <dt>{t('soilAmphoe')}</dt>
-                    <dd>{soilQuery.data.soil.amphoeTh}</dd>
+                    <dd>{translateSoilValue(soilQuery.data.soil.amphoeTh, language, t)}</dd>
                     <dt>{t('soilDrainage')}</dt>
-                    <dd>{soilQuery.data.soil.drainageClass ?? t('soilNoData')}</dd>
+                    <dd>{translateSoilValue(soilQuery.data.soil.drainageClass ?? '', language, t)}</dd>
                     <dt>{t('soilSource')}</dt>
                     <dd>{t('soilSourceName')}</dd>
                   </dl>
