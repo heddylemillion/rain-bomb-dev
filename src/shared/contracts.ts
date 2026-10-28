@@ -15,6 +15,48 @@ export const CommunitySchema = z.object({
 
 export type Community = z.infer<typeof CommunitySchema>;
 
+const LddSoilAttributesSchema = z.object({
+  soilCode: z.string().min(1),
+  soilNameTh: z.string().min(1),
+  soilGroup: z.enum(['2', '3', '8', '10', '11', '33', 'W']),
+  textureTh: z.string(),
+  phTopTh: z.string(),
+  fertilityTh: z.string(),
+  amphoeTh: z.string().min(1),
+});
+
+export const SoilInfoSchema = LddSoilAttributesSchema.extend({
+  drainageClass: z.string().nullable(),
+});
+export type SoilInfo = z.infer<typeof SoilInfoSchema>;
+
+const SoilPositionSchema = z.tuple([z.number(), z.number()]);
+const SoilPolygonCoordinatesSchema = z.array(z.array(SoilPositionSchema).min(4)).min(1);
+const SoilGeometrySchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('Polygon'), coordinates: SoilPolygonCoordinatesSchema }),
+  z.object({
+    type: z.literal('MultiPolygon'),
+    coordinates: z.array(SoilPolygonCoordinatesSchema).min(1),
+  }),
+]);
+
+export const SoilFeatureCollectionSchema = z.object({
+  type: z.literal('FeatureCollection'),
+  features: z.array(z.object({
+    type: z.literal('Feature'),
+    properties: SoilInfoSchema,
+    geometry: SoilGeometrySchema,
+  })),
+});
+export type SoilFeatureCollection = z.infer<typeof SoilFeatureCollectionSchema>;
+
+export const SoilResponseSchema = z.object({
+  soil: SoilInfoSchema.nullable(),
+  source: z.literal('LDD 1:25,000'),
+  coverage: z.literal('pathum-thani'),
+});
+export type SoilResponse = z.infer<typeof SoilResponseSchema>;
+
 export const HourlyForecastSchema = z.object({
   timestamp: z.number(),
   dateTimeISO: z.string(),

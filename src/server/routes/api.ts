@@ -21,6 +21,7 @@ import {
 } from '../services/overlayLayers.js';
 import type { CommunityWeatherBundle } from '../types/weather.js';
 import type { GeocodingProvider } from '../services/geocodingProvider.js';
+import { getSoilLayer, lookupSoil } from '../services/soilService.js';
 
 const CommunityIdParamSchema = z
   .string()
@@ -48,6 +49,27 @@ export const GeocodeQuerySchema = z.object({
 
 export function createApiRouter(deps: ApiRouterDeps): Router {
   const router = Router();
+
+  router.get('/soil/layer', (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.status(200).json(getSoilLayer());
+  });
+
+  router.get('/soil', (req: Request, res: Response) => {
+    const parsed = PointQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' },
+      });
+      return;
+    }
+
+    res.status(200).json({
+      soil: lookupSoil(parsed.data.lat, parsed.data.lon),
+      source: 'LDD 1:25,000',
+      coverage: 'pathum-thani',
+    });
+  });
 
   router.get('/geocode', async (req: Request, res: Response) => {
     const parsed = GeocodeQuerySchema.safeParse(req.query);
