@@ -5,6 +5,7 @@ import type L from 'leaflet';
 import type { Community, GeocodingResult, OverlayLayerId, RiskResult } from '../../shared/contracts.js';
 import { OVERLAY_CAPABILITY_ID, type CapabilityId } from '../../shared/contracts.js';
 import { fetchCapabilities } from '../api/capabilities.js';
+import { fetchSoil, fetchSoilLayer } from '../api/soil.js';
 import { fetchCommunities, fetchPointRisk, reverseGeocode } from '../api/weather.js';
 import { LocationSearch } from '../components/LocationSearch.js';
 import { MapCanvas, type UserPosition } from '../components/MapCanvas.js';
@@ -18,7 +19,6 @@ import {
 import { StatusCard } from '../components/StatusCard.js';
 import { useTranslation } from '../i18n.js';
 import { readStorage, writeStorage } from '../lib/storage.js';
-import { getMockSoilProfile } from '../lib/soil.js';
 
 const LOCATION_CHOICE_KEY = 'rain-burst-location-choice';
 const THAILAND_BOUNDS = { minLat: 5.5, maxLat: 20.5, minLon: 97, maxLon: 106 };
@@ -32,6 +32,11 @@ interface SelectedPlace {
 function isInThailand(lat: number, lon: number): boolean {
   return lat >= THAILAND_BOUNDS.minLat && lat <= THAILAND_BOUNDS.maxLat &&
     lon >= THAILAND_BOUNDS.minLon && lon <= THAILAND_BOUNDS.maxLon;
+}
+
+function soilDisplayValue(value: string, noDataLabel: string): string {
+  const normalized = value.trim();
+  return normalized && normalized !== '-' ? normalized : noDataLabel;
 }
 
 function initialPlace(params: URLSearchParams): SelectedPlace | null {
@@ -49,6 +54,7 @@ function makePointCommunity(place: SelectedPlace): Community {
     lat: place.lat,
     lon: place.lon,
     elevation_m: 0,
+    // Required by CommunitySchema only; this default is not an LDD soil classification.
     soil_group: 'C',
     drainage_capacity_mm_hr: 50,
     canal_station_id: null,
@@ -119,10 +125,6 @@ export function OverviewPage(): React.ReactNode {
     () => place ? makePointCommunity(place) : null,
     [place]
   );
-  const soilProfile = useMemo(
-    () => place ? getMockSoilProfile(place.lat, place.lon) : null,
-    [place]
-  );
   const capabilities = capabilityQuery.data?.capabilities;
   const getCapability = useCallback(
     (id: CapabilityId) => capabilities?.find((capability) => capability.id === id),
@@ -134,6 +136,24 @@ export function OverviewPage(): React.ReactNode {
   });
   const availableLayers = new Set(layerAvailability.filter((item) => item.available).map((item) => item.id));
   const effectiveLayers = new Set([...activeLayers].filter((id) => availableLayers.has(id)));
+  const soilQuery = useQuery({
+    queryKey: ['soil', place?.lat, place?.lon],
+    queryFn: ({ signal }) => {
+      if (!place) {
+        throw new Error('Soil lookup requires a selected location');
+      }
+      return fetchSoil(place.lat, place.lon, signal);
+    },
+    enabled: place !== null && effectiveLayers.has('soil'),
+    retry: 1,
+  });
+  const soilLayerQuery = useQuery({
+    queryKey: ['soil-layer'],
+    queryFn: ({ signal }) => fetchSoilLayer(signal),
+    enabled: effectiveLayers.has('soil'),
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
   const overlays = new Set(
     [...effectiveLayers].filter((id): id is OverlayLayerId => id !== 'risk' && id !== 'soil')
   );
@@ -299,6 +319,8 @@ export function OverviewPage(): React.ReactNode {
         onSelectCommunity={() => undefined}
         onMapPick={handleMapPick}
         overlays={overlays}
+        soilLayer={soilLayerQuery.data ?? null}
+        showSoilLayer={effectiveLayers.has('soil')}
         radarHours={radarHours}
         userPosition={place}
         onMapReady={(map) => { mapRef.current = map; }}
@@ -321,9 +343,12 @@ export function OverviewPage(): React.ReactNode {
           </div>
         </div>
         <LayerPanel layers={layerAvailability} active={effectiveLayers} onToggle={toggleLayer} defaultOpen={window.matchMedia('(min-width: 900px)').matches} />
-        <Legend defaultOpen={window.matchMedia('(min-width: 900px)').matches} />
+        <Legend
+          defaultOpen={window.matchMedia('(min-width: 900px)').matches}
+          showSoil={effectiveLayers.has('soil')}
+        />
         <div className="map-bottom">
-          {(baseTilesFailed || capabilityQuery.isError || pointRiskQuery.isError || locationMessage) && (
+          {(baseTilesFailed || capabilityQuery.isError || pointRiskQuery.isError || soilLayerQuery.isError || locationMessage) && (
             <div className="map-notices">
               {baseTilesFailed && <p className="map-notice" role="alert">{t('mapTilesError')}</p>}
               {capabilityQuery.isError && <p className="map-notice" role="status">{t('capabilityLoadWarning')}</p>}
@@ -336,6 +361,7 @@ export function OverviewPage(): React.ReactNode {
                 </p>
               )}
               {pointRiskQuery.isError && <p className="map-notice" role="alert">{t('pointRiskFailed')}</p>}
+              {soilLayerQuery.isError && <p className="map-notice" role="alert">{t('soilLayerLoadError')}</p>}
             </div>
           )}
           {overlays.has('radar') && <RadarSlider hours={radarHours} onChange={setRadarHours} />}
@@ -366,24 +392,49 @@ export function OverviewPage(): React.ReactNode {
               pointNotice={statusRisk?.usesDefaultTraits || (place && !statusRisk) ? t('pointRiskNotice') : null}
             />
           )}
-          {selectedCommunity && soilProfile && effectiveLayers.has('soil') && (
-            <section className="status-card soil-card" aria-labelledby="soil-info-title">
+          {selectedCommunity && effectiveLayers.has('soil') && (
+            <section className="status-card soil-card" aria-labelledby="soil-info-title" aria-busy={soilQuery.isPending}>
               <div className="status-head">
                 <h2 id="soil-info-title" className="status-community">{t('soilInfoTitle')}</h2>
-                <span className="soil-mock-badge">{t('mockBadge')}</span>
               </div>
               <p className="soil-location">
                 {language === 'th' ? selectedCommunity.name_th : selectedCommunity.name_en} · {place?.lat.toFixed(3)}, {place?.lon.toFixed(3)}
               </p>
-              <dl className="detail-grid">
-                <dt>{t('soilType')}</dt>
-                <dd>{language === 'th' ? soilProfile.nameTh : soilProfile.nameEn}</dd>
-                <dt>{t('soilGroup')}</dt>
-                <dd>{soilProfile.group}</dd>
-                <dt>{t('soilDrainage')}</dt>
-                <dd>{language === 'th' ? soilProfile.drainageTh : soilProfile.drainageEn}</dd>
-              </dl>
-              <p className="status-mock-note">{t('soilMockNotice')}</p>
+              {soilQuery.isPending && <p role="status">{t('soilLoading')}</p>}
+              {soilQuery.isError && (
+                <p className="status-message" role="alert">
+                  {t('soilLoadError')}{' '}
+                  <button type="button" className="inline-button" onClick={() => { void soilQuery.refetch(); }}>
+                    {t('retry')}
+                  </button>
+                </p>
+              )}
+              {soilQuery.data?.soil && (
+                <>
+                  <dl className="detail-grid">
+                    <dt>{t('soilType')}</dt>
+                    <dd>{soilQuery.data.soil.soilNameTh} ({soilQuery.data.soil.soilCode})</dd>
+                    <dt>{t('soilTexture')}</dt>
+                    <dd>{soilDisplayValue(soilQuery.data.soil.textureTh, t('soilNoData'))}</dd>
+                    <dt>{t('soilLddGroup')}</dt>
+                    <dd>{soilQuery.data.soil.soilGroup}</dd>
+                    <dt>{t('soilPh')}</dt>
+                    <dd>{soilDisplayValue(soilQuery.data.soil.phTopTh, t('soilNoData'))}</dd>
+                    <dt>{t('soilFertility')}</dt>
+                    <dd>{soilDisplayValue(soilQuery.data.soil.fertilityTh, t('soilNoData'))}</dd>
+                    <dt>{t('soilAmphoe')}</dt>
+                    <dd>{soilQuery.data.soil.amphoeTh}</dd>
+                    <dt>{t('soilDrainage')}</dt>
+                    <dd>{soilQuery.data.soil.drainageClass ?? t('soilNoData')}</dd>
+                    <dt>{t('soilSource')}</dt>
+                    <dd>LDD 1:25,000</dd>
+                  </dl>
+                  <p className="soil-resolution-note">{t('soilResolutionNotice')}</p>
+                </>
+              )}
+              {soilQuery.data && !soilQuery.data.soil && (
+                <p className="status-message">{t('soilOutOfCoverage')}</p>
+              )}
             </section>
           )}
           {!showRisk && (

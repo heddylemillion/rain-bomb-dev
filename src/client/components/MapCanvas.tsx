@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import L from 'leaflet';
-import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
+import { GeoJSON, MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { Community, OverlayLayerId, RiskResult } from '../../shared/contracts.js';
+import type { Community, OverlayLayerId, RiskResult, SoilFeatureCollection, SoilInfo } from '../../shared/contracts.js';
 import { useTranslation } from '../i18n.js';
 import { LEVEL_KEYS, LEVEL_SYMBOL, worstLevel, type RiskLevel } from '../lib/risk.js';
 
@@ -19,6 +19,8 @@ interface MapCanvasProps {
   onSelectCommunity: (communityId: string) => void;
   onMapPick: (point: UserPosition) => void;
   overlays: ReadonlySet<OverlayLayerId>;
+  soilLayer: SoilFeatureCollection | null;
+  showSoilLayer: boolean;
   radarHours: number;
   userPosition: UserPosition | null;
   onMapReady: (map: L.Map) => void;
@@ -31,6 +33,33 @@ const BLANK_TILE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 const OVERLAY_Z: Record<OverlayLayerId, number> = { radar: 300, storm: 310, lightning: 320, soil: 330 };
+
+const SOIL_TEXTURE_STYLES: Record<string, L.PathOptions> = {
+  'ดินเหนียว': { color: '#8f4e3b', fillColor: '#c98164', dashArray: undefined },
+  'ดินเหนียวปนทรายแป้ง': { color: '#8a6a2d', fillColor: '#d4a84e', dashArray: '7 4' },
+  'ดินร่วนปนทรายแป้ง': { color: '#356d62', fillColor: '#6fa99a', dashArray: '2 4' },
+  water: { color: '#356c8a', fillColor: '#78b6d2', dashArray: '1 4' },
+};
+
+function soilPathStyle(feature: { properties: SoilInfo } | undefined): L.PathOptions {
+  const texture = feature?.properties.textureTh;
+  const style = texture ? SOIL_TEXTURE_STYLES[texture] : SOIL_TEXTURE_STYLES['water'];
+  return {
+    ...style,
+    weight: 2,
+    opacity: 0.9,
+    fillOpacity: 0.38,
+  };
+}
+
+function bindSoilTooltip(
+  feature: { properties: SoilInfo },
+  layer: L.Layer,
+  noDataLabel: string
+): void {
+  const { soilNameTh, soilCode, textureTh } = feature.properties;
+  layer.bindTooltip(`${soilNameTh} (${soilCode}) · ${textureTh || noDataLabel}`);
+}
 
 const iconCache = new Map<string, L.DivIcon>();
 
@@ -213,12 +242,14 @@ export function MapCanvas({
   onSelectCommunity,
   onMapPick,
   overlays,
+  soilLayer,
+  showSoilLayer,
   radarHours,
   userPosition,
   onMapReady,
   onBaseTilesFailed,
 }: MapCanvasProps): React.ReactNode {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const reduceMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
   const bounds = useMemo(
     () => communities.length > 0
@@ -272,6 +303,14 @@ export function MapCanvas({
             errorTileUrl={BLANK_TILE}
           />
         ))}
+        {showSoilLayer && soilLayer && (
+          <GeoJSON
+            key={`soil-layer-${language}`}
+            data={soilLayer}
+            style={soilPathStyle}
+            onEachFeature={(feature, layer) => bindSoilTooltip(feature, layer, t('soilNoData'))}
+          />
+        )}
         {showRisk && (
           <RiskMarkers
             items={items}

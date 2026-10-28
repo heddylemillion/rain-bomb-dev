@@ -1200,12 +1200,14 @@ button:disabled {
 }
 
 .status-updated,
-.status-mock-note {
+.status-mock-note,
+.soil-resolution-note {
   color: var(--color-muted);
   font-size: 0.95rem;
 }
 
-.status-mock-note {
+.status-mock-note,
+.soil-resolution-note {
   font-weight: 700;
 }
 
@@ -1276,12 +1278,34 @@ button:disabled {
   font-size: 0.9rem;
 }
 
-.soil-mock-badge {
-  border: var(--border-w) solid var(--color-border);
-  border-radius: 0.5rem;
-  padding: 0.05rem 0.45rem;
+.soil-legend-swatch {
+  display: inline-block;
+  width: 1.4rem;
+  height: 0.75rem;
+  flex: none;
+  border: 1px solid currentColor;
+}
+
+.soil-legend-clay {
+  background: repeating-linear-gradient(135deg, #c98164 0 4px, #8f4e3b 4px 5px);
+}
+
+.soil-legend-clay-silt {
+  background: repeating-linear-gradient(45deg, #d4a84e 0 4px, #8a6a2d 4px 5px);
+}
+
+.soil-legend-silt-loam {
+  background: repeating-linear-gradient(135deg, #6fa99a 0 4px, #356d62 4px 5px);
+}
+
+.soil-legend-water {
+  background: repeating-linear-gradient(45deg, #78b6d2 0 4px, #356c8a 4px 5px);
+}
+
+.soil-legend-source {
+  margin-top: 0.35rem;
+  color: var(--color-muted);
   font-size: 0.8rem;
-  font-weight: 800;
 }
 
 /* ---- first-visit prompt ---- */

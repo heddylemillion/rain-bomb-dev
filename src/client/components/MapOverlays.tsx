@@ -215,7 +215,20 @@ export function MapControls({
 
 /* --------------------------------------------------------------- legend */
 
-export function Legend({ defaultOpen }: { defaultOpen: boolean }): React.ReactNode {
+const SOIL_LEGEND: ReadonlyArray<{ id: string; key: MessageKey }> = [
+  { id: 'clay', key: 'soilLegendClay' },
+  { id: 'clay-silt', key: 'soilLegendClaySilt' },
+  { id: 'silt-loam', key: 'soilLegendSiltLoam' },
+  { id: 'water', key: 'soilLegendWater' },
+];
+
+export function Legend({
+  defaultOpen,
+  showSoil = false,
+}: {
+  defaultOpen: boolean;
+  showSoil?: boolean;
+}): React.ReactNode {
   const { t } = useTranslation();
   const [open, setOpen] = useState(defaultOpen);
   const levels: ReadonlyArray<{ level: RiskLevel; key: MessageKey }> = [
@@ -243,8 +256,15 @@ export function Legend({ defaultOpen }: { defaultOpen: boolean }): React.ReactNo
               {t(key)}
             </li>
           ))}
+          {showSoil && SOIL_LEGEND.map(({ id, key }) => (
+            <li key={id} className="legend-entry">
+              <span className={`soil-legend-swatch soil-legend-${id}`} aria-hidden="true" />
+              {t(key)}
+            </li>
+          ))}
         </ul>
       )}
+      {open && showSoil && <p className="soil-legend-source">LDD 1:25,000</p>}
     </div>
   );
 }

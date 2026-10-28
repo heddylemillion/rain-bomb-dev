@@ -45,3 +45,17 @@ It is not a computed flood-risk warning.
 
 Leaflet map tiles are proxied by `/api/map/tiles/*`, so the browser's map data
 requests stay under `/api/*`. Map attribution identifies OpenStreetMap.
+
+## LDD soil data
+
+The Pathum Thani soil lookup uses `data/soil-pathumthani.geojson`, a GeoJSON
+FeatureCollection in WGS84 supplied from the LDD 1:25,000 soil-series data.
+`GET /api/soil?lat=...&lon=...` returns the matching series or `soil: null`
+outside the dataset coverage; `GET /api/soil/layer` returns the map layer.
+The map and soil card identify the source and note that this is coarse
+district-by-series information, not a point- or street-level survey.
+
+Drainage classes are not present in the supplied dataset. Keep
+`config/soil-drainage.json` values `null` until each value has a verifiable LDD
+reference. Confirm LDD reuse and redistribution terms before publishing the
+GeoJSON in a public repository.
