@@ -416,8 +416,6 @@ export function OverviewPage(): React.ReactNode {
                     <dd>{soilQuery.data.soil.soilNameTh} ({soilQuery.data.soil.soilCode})</dd>
                     <dt>{t('soilTexture')}</dt>
                     <dd>{soilDisplayValue(soilQuery.data.soil.textureTh, t('soilNoData'))}</dd>
-                    <dt>{t('soilLddGroup')}</dt>
-                    <dd>{soilQuery.data.soil.soilGroup}</dd>
                     <dt>{t('soilPh')}</dt>
                     <dd>{soilDisplayValue(soilQuery.data.soil.phTopTh, t('soilNoData'))}</dd>
                     <dt>{t('soilFertility')}</dt>
