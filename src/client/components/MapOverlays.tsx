@@ -264,7 +264,7 @@ export function Legend({
           ))}
         </ul>
       )}
-      {open && showSoil && <p className="soil-legend-source">LDD 1:25,000</p>}
+      {open && showSoil && <p className="soil-legend-source">{t('soilSourceName')}</p>}
     </div>
   );
 }

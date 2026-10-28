@@ -425,7 +425,7 @@ export function OverviewPage(): React.ReactNode {
                     <dt>{t('soilDrainage')}</dt>
                     <dd>{soilQuery.data.soil.drainageClass ?? t('soilNoData')}</dd>
                     <dt>{t('soilSource')}</dt>
-                    <dd>LDD 1:25,000</dd>
+                    <dd>{t('soilSourceName')}</dd>
                   </dl>
                   <p className="soil-resolution-note">{t('soilResolutionNotice')}</p>
                 </>
