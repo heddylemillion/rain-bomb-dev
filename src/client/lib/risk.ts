@@ -1,7 +1,7 @@
 import type { RiskResult } from '../../shared/contracts.js';
 import type { Language, MessageKey } from '../i18n.js';
 
-export type RiskLevel = RiskResult['level'];
+export type RiskLevel = Exclude<RiskResult['level'], 'INSUFFICIENT'>;
 
 /** Risk is never conveyed by colour alone: every level has a distinct shape and a word. */
 export const LEVEL_SYMBOL: Record<RiskLevel, string> = {

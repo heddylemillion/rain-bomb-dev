@@ -30,8 +30,8 @@ export function normalizeHourlyForecast(
     dewpointC: p.dewpointC ?? p.avgDewpointC ?? null,
     humidity: p.humidity ?? null,
     pressureMB: p.pressureMB ?? null,
-    pop: p.pop ?? 0,
-    precipMM: p.precipMM ?? 0,
+    pop: p.pop,
+    precipMM: p.precipMM,
     windSpeedKPH: p.windSpeedKPH ?? null,
     windGustKPH: p.windGustKPH ?? null,
     windDir: p.windDir ?? null,
@@ -39,7 +39,7 @@ export function normalizeHourlyForecast(
     weather: p.weatherPrimary ?? p.weather ?? null,
     weatherPrimaryCoded: p.weatherPrimaryCoded ?? null,
     icon: p.icon ?? null,
-    isDay: p.isDay ?? true,
+    isDay: p.isDay ?? null,
   }));
 }
 
@@ -63,8 +63,8 @@ export function normalizeDailyForecast(
     maxHumidity: p.maxHumidity ?? null,
     minHumidity: p.minHumidity ?? null,
     pressureMB: p.pressureMB ?? null,
-    pop: p.pop ?? 0,
-    precipMM: p.precipMM ?? 0,
+    pop: p.pop,
+    precipMM: p.precipMM,
     windSpeedMaxKPH: p.windSpeedMaxKPH ?? p.windSpeedKPH ?? null,
     windGustKPH: p.windGustKPH ?? null,
     windDir: p.windDir ?? null,

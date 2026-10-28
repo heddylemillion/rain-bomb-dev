@@ -1,4 +1,6 @@
+import { useQuery } from '@tanstack/react-query';
 import { NavLink, Outlet, useMatch } from 'react-router-dom';
+import { z } from 'zod';
 import { useTranslation, type MessageKey } from '../i18n.js';
 import { usePreferences, type FontStep } from '../lib/preferences.js';
 
@@ -20,6 +22,16 @@ export function AppShell(): React.ReactNode {
   const { language, setLanguage, t } = useTranslation();
   const { fontStep, setFontStep, highContrast, toggleHighContrast } = usePreferences();
   const isMapRoute = useMatch({ path: '/', end: true }) !== null;
+  const runtimeConfig = useQuery({
+    queryKey: ['runtime-config'],
+    queryFn: async ({ signal }) => {
+      const response = await fetch('/api/runtime-config', { signal });
+      if (!response.ok) throw new Error(`Runtime configuration request failed: ${response.status}`);
+      return z.object({ demoMode: z.boolean() }).parse(await response.json());
+    },
+    staleTime: 30 * 60 * 1000,
+    refetchInterval: false,
+  });
 
   return (
     <div className={`app-shell${isMapRoute ? ' app-shell-map' : ''}`}>
@@ -90,6 +102,12 @@ export function AppShell(): React.ReactNode {
         </nav>
       </header>
 
+      {runtimeConfig.data?.demoMode && (
+        <div className="demo-mode-banner" role="status" aria-live="polite">
+          {t('demoModeBanner')}
+        </div>
+      )}
+
       <main id="main-content" className={`main-content${isMapRoute ? ' main-content-map' : ''}`} tabIndex={-1}>
         {isMapRoute ? (
           <Outlet />
@@ -109,6 +127,7 @@ export function AppShell(): React.ReactNode {
             <a className="footer-link" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
               {t('mapAttribution')}
             </a>
+            {' · '}{t('weatherAttribution')}
           </p>
         )}
       </footer>

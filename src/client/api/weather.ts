@@ -2,10 +2,9 @@ import {
   CommunitySchema,
   GeocodingResultSchema,
   PointRiskResponseSchema,
-  RiskResultSchema,
   WeatherBundleSchema,
 } from '../../shared/contracts.js';
-import type { Community, GeocodingResult, PointRiskResponse, RiskResult, WeatherBundle } from '../../shared/contracts.js';
+import type { Community, GeocodingResult, PointRiskResponse, WeatherBundle } from '../../shared/contracts.js';
 import { z } from 'zod';
 
 const CommunitiesResponseSchema = z.object({
@@ -19,17 +18,6 @@ async function getJson(path: string, signal: AbortSignal): Promise<unknown> {
   }
   const payload: unknown = await response.json();
   return payload;
-}
-
-export async function fetchMockRiskResult(
-  communityId: string,
-  signal: AbortSignal
-): Promise<RiskResult> {
-  const payload = await getJson(
-    `/api/risk/${encodeURIComponent(communityId)}`,
-    signal
-  );
-  return RiskResultSchema.parse(payload);
 }
 
 export async function fetchCommunities(signal: AbortSignal): Promise<Community[]> {

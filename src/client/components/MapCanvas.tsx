@@ -31,6 +31,15 @@ const BLANK_TILE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 const OVERLAY_Z: Record<OverlayLayerId, number> = { radar: 300, storm: 310, lightning: 320 };
+const TILE_LAYER_CODE: Record<OverlayLayerId, string> = {
+  radar: 'radar-global',
+  lightning: 'lightning-flash',
+  storm: 'tropical-cyclones',
+};
+
+function rasterOffset(hours: number): string {
+  return hours === 0 ? 'current' : `${hours}hour`;
+}
 
 const iconCache = new Map<string, L.DivIcon>();
 
@@ -69,7 +78,7 @@ const userIcon = L.divIcon({
 
 interface MarkerItem {
   community: Community;
-  risk: RiskResult;
+  risk: RiskResult & { level: RiskLevel };
 }
 
 interface Cluster {
@@ -220,17 +229,64 @@ export function MapCanvas({
 }: MapCanvasProps): React.ReactNode {
   const { t } = useTranslation();
   const reduceMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
+  const activeOverlayKey = [...overlays].sort().join(',');
+  const [tileRefreshVersion, setTileRefreshVersion] = useState<Record<OverlayLayerId, number>>({
+    radar: 0,
+    lightning: 0,
+    storm: 0,
+  });
   const bounds = useMemo(
     () => communities.length > 0
       ? L.latLngBounds(communities.map((community) => L.latLng(community.lat, community.lon))).pad(0.35)
       : L.latLngBounds([13.5, 99.5], [15.5, 102]).pad(0.4),
     [communities]
   );
+  useEffect(() => {
+    const activeLayers = activeOverlayKey.split(',').filter(
+      (layer): layer is OverlayLayerId =>
+        layer === 'radar' || layer === 'lightning' || layer === 'storm'
+    );
+    if (activeLayers.length === 0) return undefined;
+
+    let timers: number[] = [];
+    const clearTimers = (): void => {
+      timers.forEach((timer) => window.clearInterval(timer));
+      timers = [];
+    };
+    const startTimers = (): void => {
+      clearTimers();
+      if (document.visibilityState !== 'visible') return;
+      timers = activeLayers.map((layer) => window.setInterval(() => {
+        setTileRefreshVersion((versions) => ({
+          ...versions,
+          [layer]: (versions[layer] ?? 0) + 1,
+        }));
+      }, layer === 'storm' ? 30 * 60 * 1000 : 5 * 60 * 1000));
+    };
+    const onVisibilityChange = (): void => {
+      clearTimers();
+      if (document.visibilityState === 'visible') {
+        setTileRefreshVersion((versions) => activeLayers.reduce(
+          (next, layer) => ({ ...next, [layer]: (next[layer] ?? 0) + 1 }),
+          { ...versions }
+        ));
+        startTimers();
+      }
+    };
+
+    startTimers();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearTimers();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [activeOverlayKey]);
   const items = useMemo<MarkerItem[]>(
     () =>
       communities.flatMap((community) => {
         const risk = risks.get(community.id);
-        return risk ? [{ community, risk }] : [];
+        if (!risk || risk.level === 'INSUFFICIENT') return [];
+        return [{ community, risk: { ...risk, level: risk.level } }];
       }),
     [communities, risks]
   );
@@ -263,8 +319,8 @@ export function MapCanvas({
         />
         {[...overlays].map((layer) => (
           <TileLayer
-            key={layer}
-            url={`/api/map/overlay/${layer}/${layer === 'radar' ? radarHours : 0}/{z}/{x}/{y}.png`}
+            key={`${layer}-${tileRefreshVersion[layer]}`}
+            url={`/api/tiles/${TILE_LAYER_CODE[layer]}/{z}/{x}/{y}/${layer === 'radar' ? rasterOffset(radarHours) : 'current'}.png`}
             opacity={layer === 'radar' ? 0.75 : 0.9}
             zIndex={OVERLAY_Z[layer]}
             maxNativeZoom={12}

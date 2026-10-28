@@ -47,11 +47,6 @@ function makePointCommunity(place: SelectedPlace): Community {
     name_en: place.name,
     lat: place.lat,
     lon: place.lon,
-    elevation_m: 0,
-    soil_group: 'C',
-    drainage_capacity_mm_hr: 50,
-    canal_station_id: null,
-    calibration_status: 'DEFAULT TRAITS',
   };
 }
 
@@ -112,6 +107,8 @@ export function OverviewPage(): React.ReactNode {
     queryFn: ({ signal }) => fetchPointRisk(place?.lat ?? 0, place?.lon ?? 0, signal),
     enabled: place !== null,
     retry: 1,
+    refetchInterval: 5 * 60 * 1000,
+    refetchIntervalInBackground: false,
   });
 
   const selectedCommunity = useMemo(
@@ -125,7 +122,12 @@ export function OverviewPage(): React.ReactNode {
   );
   const layerAvailability: LayerAvailability[] = (['risk', 'radar', 'lightning', 'storm'] as const).map((id) => {
     const capability = getCapability(id === 'risk' ? 'risk-summary' : OVERLAY_CAPABILITY_ID[id as OverlayLayerId]);
-    return { id, available: id === 'risk' || capability?.available === true, reason: capability?.reason ?? 'error' };
+    return {
+      id,
+      available: id === 'risk' || capability?.available === true,
+      reason: capability?.reason ?? 'error',
+      updatedAt: capability?.checkedAt ?? null,
+    };
   });
   const availableLayers = new Set(layerAvailability.filter((item) => item.available).map((item) => item.id));
   const effectiveLayers = new Set([...activeLayers].filter((id) => availableLayers.has(id)));
@@ -134,8 +136,11 @@ export function OverviewPage(): React.ReactNode {
   );
   const risks = useMemo(() => {
     const map = new Map<string, RiskResult>();
-    if (selectedCommunity && pointRiskQuery.data) {
-      map.set(selectedCommunity.id, pointRiskQuery.data);
+    const risk = pointRiskQuery.data;
+    if (selectedCommunity && risk && (
+      risk.level === 'HIGH' || risk.level === 'MEDIUM' || risk.level === 'LOW'
+    )) {
+      map.set(selectedCommunity.id, risk);
     }
     return map;
   }, [pointRiskQuery.data, selectedCommunity]);
@@ -284,7 +289,7 @@ export function OverviewPage(): React.ReactNode {
   const statusRisk = pointRiskQuery.data;
 
   return (
-    <div className="map-home">
+    <div className={`map-home${overlays.has('radar') ? ' has-radar' : ''}`}>
       <h1 className="sr-only">{t('mapRegionLabel')}</h1>
       <MapCanvas
         communities={selectedCommunity ? [selectedCommunity] : []}
@@ -351,14 +356,7 @@ export function OverviewPage(): React.ReactNode {
               riskLoading={locationPending}
               riskError={pointRiskQuery.isError}
               retryRisk={() => { void pointRiskQuery.refetch(); }}
-              weather={{
-                data: statusRisk?.weather,
-                loading: locationPending,
-                error: pointRiskQuery.isError,
-                retry: () => { void pointRiskQuery.refetch(); },
-              }}
-              isMock={statusRisk?.isMock ?? false}
-              pointNotice={statusRisk?.usesDefaultTraits || (place && !statusRisk) ? t('pointRiskNotice') : null}
+              pointNotice={statusRisk?.noticeTh ?? null}
             />
           )}
           {!showRisk && (

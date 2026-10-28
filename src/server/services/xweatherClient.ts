@@ -52,9 +52,15 @@ const CapabilityProbeSchema = z.object({
   response: z.union([z.array(z.unknown()), z.record(z.unknown())]),
 });
 
+const RawEndpointEnvelopeSchema = z.object({
+  success: z.boolean(),
+  error: z.object({ code: z.string().optional(), description: z.string().optional() }).nullable().optional(),
+  response: z.union([z.array(z.unknown()), z.record(z.unknown())]),
+});
+
 export interface XweatherClientOptions {
   baseUrl: string;
-  /** Raster Maps host. UNVERIFIED default: https://maps.api.xweather.com */
+  /** Raster Maps host, separate from the Weather API host. */
   mapsBaseUrl?: string;
   clientId: string;
   clientSecret: string;
@@ -64,7 +70,7 @@ export interface XweatherClientOptions {
 }
 
 export type RasterTileResult =
-  | { ok: true; body: Buffer; contentType: string }
+  | { ok: true; body: ReadableStream<Uint8Array>; contentType: string }
   | { ok: false; status: number | null };
 
 export class XweatherClient {
@@ -272,9 +278,44 @@ export class XweatherClient {
     );
   }
 
+  public async fetchRawEndpoint(
+    endpointPath: string,
+    queryParams: Record<string, string> = {},
+    allowEmptyResponse = false
+  ): Promise<z.infer<typeof RawEndpointEnvelopeSchema>> {
+    return this.requestAndValidate(
+      endpointPath,
+      queryParams,
+      RawEndpointEnvelopeSchema,
+      allowEmptyResponse
+    );
+  }
+
+  public async fetchObservationsArchive(lat: number, lon: number): Promise<z.infer<typeof RawEndpointEnvelopeSchema>> {
+    const to = new Date();
+    const from = new Date(to.getTime() - 3 * 60 * 60 * 1000);
+    return this.fetchRawEndpoint(`/observations/archive/${lat},${lon}`, {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      filter: '1hr',
+    });
+  }
+
+  public async fetchLightningWithin(lat: number, lon: number): Promise<z.infer<typeof RawEndpointEnvelopeSchema>> {
+    const to = new Date();
+    const from = new Date(to.getTime() - 30 * 60 * 1000);
+    return this.fetchRawEndpoint('/lightning/within', {
+      p: `${lat},${lon}`,
+      radius: '20km',
+      from: from.toISOString(),
+      to: to.toISOString(),
+      limit: '1000',
+    }, true);
+  }
+
   /**
    * Fetches one Xweather Raster Maps PNG tile.
-   * URL pattern (UNVERIFIED against the live plan): {mapsBase}/{id}_{secret}/{layer}/{z}/{x}/{y}/{offset}.png
+   * URL pattern: {mapsBase}/{id}_{secret}/{layer}/{z}/{x}/{y}/{offset}.png
    * The credentialed URL is never logged or returned; callers only get bytes or a status code.
    * Callers must pass already-validated layer/offset values.
    */
@@ -309,8 +350,13 @@ export class XweatherClient {
       if (!res.ok || !contentType.toLowerCase().startsWith('image/')) {
         return { ok: false, status: res.status };
       }
-      return { ok: true, body: Buffer.from(await res.arrayBuffer()), contentType };
-    } catch {
+      if (!res.body) return { ok: false, status: res.status };
+      return { ok: true, body: res.body, contentType };
+    } catch (error: unknown) {
+      logger.warn(
+        { errorName: error instanceof Error ? error.name : 'UnknownError' },
+        'Xweather raster request failed'
+      );
       return { ok: false, status: null };
     } finally {
       clearTimeout(timer);

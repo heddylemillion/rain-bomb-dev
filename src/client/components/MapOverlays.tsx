@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Capability, Community, OverlayLayerId } from '../../shared/contracts.js';
-import { RADAR_OFFSET_HOURS } from '../../shared/contracts.js';
 import { useTranslation, type MessageKey } from '../i18n.js';
-import { LEVEL_SYMBOL, type RiskLevel } from '../lib/risk.js';
+import { formatClock, LEVEL_SYMBOL, type RiskLevel } from '../lib/risk.js';
 
 /* ---------------------------------------------------------------- picker */
 
@@ -107,6 +106,7 @@ export interface LayerAvailability {
   id: MapLayerId;
   available: boolean;
   reason: Capability['reason'];
+  updatedAt: string | null;
 }
 
 function unavailableText(reason: Capability['reason']): MessageKey {
@@ -130,7 +130,7 @@ export function LayerPanel({
   onToggle: (id: MapLayerId) => void;
   defaultOpen: boolean;
 }): React.ReactNode {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className={`map-panel layer-panel${open ? ' is-open' : ''}`}>
@@ -144,7 +144,7 @@ export function LayerPanel({
         {t('mapLayers')} <span aria-hidden="true">{open ? '▴' : '▾'}</span>
       </button>
       <ul id="layer-list" className="layer-list" aria-label={t('mapLayers')}>
-        {layers.map(({ id, available, reason }) => {
+        {layers.map(({ id, available, reason, updatedAt }) => {
           const on = active.has(id);
           return (
             <li key={id}>
@@ -160,6 +160,7 @@ export function LayerPanel({
                   <span className="layer-name">{t(LAYER_LABEL[id])}</span>
                   <span className="layer-state">
                     {available ? (on ? `✓ ${t('layerOn')}` : t('layerOff')) : t(unavailableText(reason))}
+                    {updatedAt && <span className="layer-updated"> · {t('updatedAt')} {formatClock(updatedAt, language)}</span>}
                   </span>
                 </span>
               </button>
@@ -249,17 +250,15 @@ export function Legend({ defaultOpen }: { defaultOpen: boolean }): React.ReactNo
 
 /* ---------------------------------------------------------- time slider */
 
+const RADAR_HOURS = [-3, -2, -1, 0] as const;
 const HOUR_LABEL: Record<number, MessageKey> = {
   [-3]: 'timePast3',
   [-2]: 'timePast2',
   [-1]: 'timePast1',
   0: 'timeNow',
-  1: 'timeNext1',
-  2: 'timeNext2',
-  3: 'timeNext3',
 };
 
-const NOW_INDEX = RADAR_OFFSET_HOURS.indexOf(0);
+const NOW_INDEX = RADAR_HOURS.indexOf(0);
 const PLAY_INTERVAL_MS = 1400;
 
 /** Radar time slider. Playback only starts when the user presses "เล่น" (no autoplay). */
@@ -272,20 +271,27 @@ export function RadarSlider({
 }): React.ReactNode {
   const { t } = useTranslation();
   const [playing, setPlaying] = useState(false);
-  const index = Math.max(0, RADAR_OFFSET_HOURS.indexOf(hours as (typeof RADAR_OFFSET_HOURS)[number]));
+  const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
+  const index = Math.max(0, RADAR_HOURS.indexOf(hours as (typeof RADAR_HOURS)[number]));
   const indexRef = useRef(index);
   indexRef.current = index;
 
   useEffect(() => {
-    if (!playing) {
+    const updateVisibility = (): void => setVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (!playing || !visible) {
       return undefined;
     }
     const timer = window.setInterval(() => {
-      const next = (indexRef.current + 1) % RADAR_OFFSET_HOURS.length;
-      onChange(RADAR_OFFSET_HOURS[next] ?? 0);
+      const next = (indexRef.current + 1) % RADAR_HOURS.length;
+      onChange(RADAR_HOURS[next] ?? 0);
     }, PLAY_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [onChange, playing]);
+  }, [onChange, playing, visible]);
 
   const currentLabel = t(HOUR_LABEL[hours] ?? 'timeNow');
   return (
@@ -308,23 +314,23 @@ export function RadarSlider({
             type="range"
             className="slider-input"
             min={0}
-            max={RADAR_OFFSET_HOURS.length - 1}
+            max={RADAR_HOURS.length - 1}
             step={1}
             value={index}
             aria-valuetext={currentLabel}
             onChange={(event) => {
               setPlaying(false);
-              onChange(RADAR_OFFSET_HOURS[Number(event.target.value)] ?? 0);
+              onChange(RADAR_HOURS[Number(event.target.value)] ?? 0);
             }}
           />
           <div className="slider-ticks" aria-hidden="true">
             <span>{t('timePast3')}</span>
+            <span>{t('timePast1')}</span>
             <span style={{ fontWeight: index === NOW_INDEX ? 800 : 500 }}>{t('timeNow')}</span>
-            <span>{t('timeNext3')}</span>
           </div>
         </div>
       </div>
-      <p className="slider-note">{t('radarTilesUnverified')} · Xweather</p>
+      <p className="slider-note">{t('radarPastOnly')} · {t('radarTilesUnverified')} · Xweather</p>
     </div>
   );
 }

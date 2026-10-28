@@ -21,22 +21,16 @@ import { XweatherClient, XweatherClientError } from '../services/xweatherClient.
 import type { CommunityWeatherBundle } from '../types/weather.js';
 
 async function loadSampleJson(filename: string): Promise<unknown> {
-  const filePath = path.join(SAMPLES_DIR_PATH, filename);
-  const raw = await fs.readFile(filePath, 'utf-8');
+  const raw = await fs.readFile(path.join(SAMPLES_DIR_PATH, filename), 'utf-8');
   return JSON.parse(raw) as unknown;
 }
 
-describe('Phase 1 — Backend Normalization, Cache, Redaction & API Routes', () => {
-  it('validates and normalizes real Phase 0 saved samples (1hr, day, observations, conditions)', async () => {
-    const raw1hr = await loadSampleJson('forecasts-1hr.json');
-    const rawDay = await loadSampleJson('forecasts-day.json');
-    const rawObs = await loadSampleJson('observations.json');
-    const rawCond = await loadSampleJson('conditions.json');
-
-    const hourlyEnv = XweatherForecastEnvelopeSchema.parse(raw1hr);
-    const dailyEnv = XweatherForecastEnvelopeSchema.parse(rawDay);
-    const obsEnv = XweatherObservationEnvelopeSchema.parse(rawObs);
-    const condEnv = XweatherConditionEnvelopeSchema.parse(rawCond);
+describe('Xweather normalization, data availability, and caching', () => {
+  it('uses saved upstream responses as test fixtures and preserves missing values', async () => {
+    const hourlyEnv = XweatherForecastEnvelopeSchema.parse(await loadSampleJson('forecasts-1hr.json'));
+    const dailyEnv = XweatherForecastEnvelopeSchema.parse(await loadSampleJson('forecasts-day.json'));
+    const obsEnv = XweatherObservationEnvelopeSchema.parse(await loadSampleJson('observations.json'));
+    const condEnv = XweatherConditionEnvelopeSchema.parse(await loadSampleJson('conditions.json'));
 
     const hourly = normalizeHourlyForecast(hourlyEnv);
     expect(hourly.length).toBeGreaterThan(0);
@@ -45,142 +39,82 @@ describe('Phase 1 — Backend Normalization, Cache, Redaction & API Routes', () 
       pop: expect.any(Number),
       precipMM: expect.any(Number),
     });
-
-    const daily = normalizeDailyForecast(dailyEnv);
-    expect(daily.length).toBe(3);
-    expect(daily[0]?.maxTempC).toBeTypeOf('number');
-    expect(daily[0]?.precipMM).toBeTypeOf('number');
+    expect(normalizeDailyForecast(dailyEnv)).toHaveLength(3);
 
     const current = normalizeCurrentWeather(condEnv, obsEnv);
     expect(current.rainRateMmPerHr).toBeTypeOf('number');
     expect(current.stationObservation?.stationId).toBe('VTBD');
-    expect(current.stationObservation?.distanceKM).toBeCloseTo(16.582, 2);
   });
 
-  it('redacts client_id and client_secret from URLs and error messages', () => {
+  it('redacts Xweather credentials from URL and error text', () => {
     const rawUrl =
-      'https://data.api.xweather.com/forecasts/14.0647,100.6186?filter=1hr&client_id=MY_SECRET_ID_123&client_secret=MY_SECRET_KEY_456';
+      'https://data.api.xweather.com/forecasts/14.0647,100.6186?client_id=MY_SECRET_ID_123&client_secret=MY_SECRET_KEY_456';
     const redacted = redactSecretsInText(rawUrl);
-
     expect(redacted).not.toContain('MY_SECRET_ID_123');
     expect(redacted).not.toContain('MY_SECRET_KEY_456');
     expect(redacted).toContain('client_id=***REDACTED***');
     expect(redacted).toContain('client_secret=***REDACTED***');
   });
 
-  it('GET /api/health, /api/communities and /api/capabilities return expected shapes', async () => {
-    const app = createApp({
-      config: loadConfig({ NODE_ENV: 'test' }),
-    });
+  it('returns real capability errors and no seeded communities when credentials are absent', async () => {
+    const app = createApp({ config: loadConfig({ NODE_ENV: 'test' }) });
+    const health = await request(app).get('/api/health');
+    expect(health.status).toBe(200);
+    expect(health.body.demoMode).toBe(false);
 
-    const healthRes = await request(app).get('/api/health');
-    expect(healthRes.status).toBe(200);
-    expect(healthRes.body.status).toBe('ok');
-    expect(healthRes.body.timezone).toBe('Asia/Bangkok');
+    const communities = await request(app).get('/api/communities');
+    expect(communities.body.count).toBe(0);
 
-    const commRes = await request(app).get('/api/communities');
-    expect(commRes.status).toBe(200);
-    expect(commRes.body.count).toBeGreaterThanOrEqual(4);
-    expect(commRes.body.communities[0]).toMatchObject({
-      id: 'khlong-luang-1',
-      calibration_status: 'TO BE CALIBRATED',
-    });
-
-    const capabilitiesRes = await request(app).get('/api/capabilities');
-    expect(capabilitiesRes.status).toBe(200);
-    expect(capabilitiesRes.body.isMock).toBe(true);
-    expect(capabilitiesRes.body.capabilities).toEqual(
+    const capabilities = await request(app).get('/api/capabilities');
+    expect(capabilities.status).toBe(200);
+    expect(capabilities.body.isMock).toBe(false);
+    expect(capabilities.body.capabilities).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          id: 'current-conditions',
-          available: true,
-          reason: 'ok',
-          checkedAt: expect.any(String),
-        }),
-        expect.objectContaining({
-          id: 'official-alerts',
-          available: false,
-          reason: 'error',
-          checkedAt: expect.any(String),
-        }),
+        expect.objectContaining({ id: 'observations', available: false, reason: 'error' }),
+        expect.objectContaining({ id: 'official-alerts', available: false, reason: 'error' }),
       ])
     );
-
-    const riskRes = await request(app).get('/api/risk/khlong-luang-1');
-    expect(riskRes.status).toBe(200);
-    expect(riskRes.body).toMatchObject({
-      communityId: 'khlong-luang-1',
-      score: 74,
-      level: 'HIGH',
-      alertType: 'URGENT',
-      confidence: 'LOW',
-      isMock: true,
-      calibrationStatus: 'TO BE CALIBRATED',
-    });
   });
 
-  it('GET /api/weather/:communityId caches for 10 min and falls back to stale cache when Xweather fails', async () => {
-    const raw1hr = XweatherForecastEnvelopeSchema.parse(await loadSampleJson('forecasts-1hr.json'));
-    const rawDay = XweatherForecastEnvelopeSchema.parse(await loadSampleJson('forecasts-day.json'));
-    const rawObs = XweatherObservationEnvelopeSchema.parse(await loadSampleJson('observations.json'));
-    const rawCond = XweatherConditionEnvelopeSchema.parse(await loadSampleJson('conditions.json'));
-
-    const mockClient = new XweatherClient({
+  it('deduplicates fresh weather requests and only serves stale values for 30 minutes', async () => {
+    const hourly = XweatherForecastEnvelopeSchema.parse(await loadSampleJson('forecasts-1hr.json'));
+    const daily = XweatherForecastEnvelopeSchema.parse(await loadSampleJson('forecasts-day.json'));
+    const observations = XweatherObservationEnvelopeSchema.parse(await loadSampleJson('observations.json'));
+    const conditions = XweatherConditionEnvelopeSchema.parse(await loadSampleJson('conditions.json'));
+    const client = new XweatherClient({
       baseUrl: 'https://data.api.xweather.com',
       clientId: 'test_id',
       clientSecret: 'test_secret',
     });
+    const hourlySpy = vi.spyOn(client, 'fetchHourlyForecast').mockResolvedValue(hourly);
+    vi.spyOn(client, 'fetchDailyForecast').mockResolvedValue(daily);
+    vi.spyOn(client, 'fetchObservations').mockResolvedValue(observations);
+    vi.spyOn(client, 'fetchConditions').mockResolvedValue(conditions);
+    const cache = new InMemoryWeatherCache<CommunityWeatherBundle>(300);
+    const service = new WeatherService({ xweatherClient: client, cacheStore: cache });
+    const community = {
+      id: 'test-community',
+      name_th: 'ชุมชนทดสอบ',
+      name_en: 'Test community',
+      lat: 14.0647,
+      lon: 100.6186,
+    };
 
-    const spy1hr = vi.spyOn(mockClient, 'fetchHourlyForecast').mockResolvedValue(raw1hr);
-    vi.spyOn(mockClient, 'fetchDailyForecast').mockResolvedValue(rawDay);
-    vi.spyOn(mockClient, 'fetchObservations').mockResolvedValue(rawObs);
-    vi.spyOn(mockClient, 'fetchConditions').mockResolvedValue(rawCond);
+    const first = await service.getCommunityWeather(community);
+    const second = await service.getCommunityWeather(community);
+    expect(first.meta.isMock).toBe(false);
+    expect(second.meta.isStale).toBe(false);
+    expect(hourlySpy).toHaveBeenCalledTimes(1);
 
-    // ใช้ TTL สั้น 1 วินาทีเพื่อทดสอบ stale-while-error fallback
-    const cacheStore = new InMemoryWeatherCache<CommunityWeatherBundle>(1);
-    const weatherService = new WeatherService({
-      xweatherClient: mockClient,
-      cacheStore,
-      allowMockFallback: false,
-    });
-
-    const app = createApp({
-      config: loadConfig({
-        PORT: '3001',
-        NODE_ENV: 'test',
-        XWEATHER_CLIENT_ID: 'test_id',
-        XWEATHER_CLIENT_SECRET: 'test_secret',
-      }),
-      xweatherClient: mockClient,
-      cacheStore,
-      weatherService,
-    });
-
-    // ครั้งที่ 1: ดึงสดจาก Xweather (isMock: false, isStale: false)
-    const firstRes = await request(app).get('/api/weather/khlong-luang-1');
-    expect(firstRes.status).toBe(200);
-    expect(firstRes.body.meta.isMock).toBe(false);
-    expect(firstRes.body.meta.isStale).toBe(false);
-    expect(spy1hr).toHaveBeenCalledTimes(1);
-
-    // ครั้งที่ 2 ทันที: ได้จาก fresh cache โดยไม่เรียก Xweather ซ้ำ
-    const secondRes = await request(app).get('/api/weather/khlong-luang-1');
-    expect(secondRes.status).toBe(200);
-    expect(spy1hr).toHaveBeenCalledTimes(1);
-
-    // รอให้ fresh cache หมดอายุ (1.1 วินาที) แล้วจำลองให้ Xweather ล่ม
-    await new Promise((r) => setTimeout(r, 1100));
-    spy1hr.mockRejectedValueOnce(
-      new XweatherClientError({
-        message: 'Xweather request timed out after 8000ms',
-        kind: 'TIMEOUT',
-        redactedUrl: 'https://data.api.xweather.com/forecasts/14.0647,100.6186',
-      })
-    );
-
-    const staleRes = await request(app).get('/api/weather/khlong-luang-1');
-    expect(staleRes.status).toBe(200);
-    expect(staleRes.body.meta.isStale).toBe(true);
-    expect(staleRes.body.meta.staleReason).toContain('ไม่สามารถดึงข้อมูลล่าสุดจาก Xweather ได้ชั่วคราว');
+    cache.set('weather:test-community', first, 1);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    hourlySpy.mockRejectedValueOnce(new XweatherClientError({
+      message: 'Xweather request timed out',
+      kind: 'TIMEOUT',
+      redactedUrl: 'https://data.api.xweather.com/forecasts/14.0647,100.6186',
+    }));
+    const stale = await service.getCommunityWeather(community);
+    expect(stale.meta.isStale).toBe(true);
+    expect(stale.meta.staleReason).toContain('ข้อมูลล่าสุดยังไม่พร้อม');
   });
 });

@@ -24,14 +24,11 @@ const EnvSchema = z.object({
   NOMINATIM_BASE_URL: z.string().url().default('https://nominatim.openstreetmap.org'),
   NOMINATIM_USER_AGENT: z.string().trim().min(1).default('RainBomb/0.1.0 (community weather dashboard)'),
   NOMINATIM_COUNTRYCODES: z.string().trim().default('th'),
-  WEATHER_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+  WEATHER_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   CORS_ALLOWED_ORIGINS: z
     .string()
     .default('http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173'),
-  ALLOW_MOCK_FALLBACK: z
-    .string()
-    .optional()
-    .transform((val) => val !== 'false'),
+  DEMO_MODE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
 });
 
 export interface AppConfig {
@@ -52,7 +49,7 @@ export interface AppConfig {
   };
   cacheTtlSeconds: number;
   corsAllowedOrigins: string[];
-  allowMockFallback: boolean;
+  demoMode: boolean;
 }
 
 export function loadConfig(envInput: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -79,7 +76,7 @@ export function loadConfig(envInput: NodeJS.ProcessEnv = process.env): AppConfig
     },
     cacheTtlSeconds: parsed.WEATHER_CACHE_TTL_SECONDS,
     corsAllowedOrigins: origins,
-    allowMockFallback: parsed.ALLOW_MOCK_FALLBACK,
+    demoMode: parsed.DEMO_MODE,
   };
 }
 
