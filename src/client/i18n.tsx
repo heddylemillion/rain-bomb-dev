@@ -13,7 +13,7 @@ export type MessageKey = keyof typeof messages.th;
 
 const messages = {
   th: {
-    brandTitle: 'Rain Burst',
+    brandTitle: 'RAINBOMB',
     brandSubtitle: 'เฝ้าระวังฝนและน้ำท่วม',
     overview: 'ภาพรวม',
     forecast: 'พยากรณ์',
@@ -365,7 +365,7 @@ const messages = {
     none: 'ไม่มี',
   },
   en: {
-    brandTitle: 'Rain Burst',
+    brandTitle: 'RAINBOMB',
     brandSubtitle: 'Rain and flood monitoring',
     overview: 'Overview',
     forecast: 'Forecast',
