@@ -173,8 +173,8 @@ export function LayerPanel({
                   <span className="layer-name">{t(LAYER_LABEL[id])}</span>
                   <span className="layer-state">
                     {available ? (on ? `✓ ${t('layerOn')}` : t('layerOff')) : t(unavailableText(reason))}
-                    {mock && <span className="mock-layer-pill">{t('mockPill')}</span>}
-                    {mock && on && (
+                    {mock && id !== 'soil' && <span className="mock-layer-pill">{t('mockPill')}</span>}
+                    {mock && id !== 'soil' && on && (
                       <span className="layer-updated"> · {t('mockUpdated')} {formatClock(updatedAt ?? new Date().toISOString(), language)}</span>
                     )}
                     {!mock && updatedAt && <span className="layer-updated"> · {t('updatedAt')} {formatClock(updatedAt, language)}</span>}

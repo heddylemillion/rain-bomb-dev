@@ -117,6 +117,8 @@ export function OverviewPage(): React.ReactNode {
   const [consentChoice, setConsentChoice] = useState(() => readStorage(LOCATION_CHOICE_KEY) ?? '');
   const [focusSearchRequest, setFocusSearchRequest] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [inspectorExpanded, setInspectorExpanded] = useState(true);
+  const [inspectorTab, setInspectorTab] = useState<'risk' | 'soil'>('risk');
   const mapRef = useRef<L.Map | null>(null);
   const initialLocationAttempt = useRef(false);
   const resolvedLanguageLocation = useRef('');
@@ -403,6 +405,12 @@ export function OverviewPage(): React.ReactNode {
   };
 
   const showRisk = effectiveLayers.has('risk');
+  const showSoilInfo = effectiveLayers.has('soil');
+  const inspectorTabToShow = showSoilInfo && !showRisk
+    ? 'soil'
+    : inspectorTab === 'soil' && showSoilInfo
+      ? 'soil'
+      : 'risk';
   const locationPending = place !== null && pointRiskQuery.isPending;
   const statusRisk = pointRiskQuery.data;
 
@@ -430,7 +438,7 @@ export function OverviewPage(): React.ReactNode {
         onBaseTilesFailed={setBaseTilesFailed}
         baseTileRetry={baseTileRetry}
       />
-      <div className={`map-ui${searchOpen ? ' is-searching' : ''}`}>
+      <div className={`map-ui${searchOpen ? ' is-searching' : ''}${inspectorExpanded ? ' is-inspecting' : ''}`}>
         <LocationSearch
           communities={communitiesQuery.data ?? []}
           focusSearchRequest={focusSearchRequest}
@@ -516,67 +524,128 @@ export function OverviewPage(): React.ReactNode {
               <small>{t('locationPrivacy')}</small>
             </section>
           )}
-          {selectedCommunity && showRisk && (
-            <StatusCard
-              community={selectedCommunity}
-              risk={statusRisk}
-              riskLoading={locationPending}
-              riskError={pointRiskQuery.isError}
-              retryRisk={() => { void pointRiskQuery.refetch(); }}
-              pointNotice={statusRisk?.noticeTh ?? null}
-              environment={environmentQuery.data}
-              environmentLoading={environmentQuery.isPending}
-              environmentError={environmentQuery.isError}
-              retryEnvironment={() => { void environmentQuery.refetch(); }}
-            />
-          )}
-          {selectedCommunity && effectiveLayers.has('soil') && (
-            <section className="status-card soil-card" aria-labelledby="soil-info-title" aria-busy={soilQuery.isPending}>
-              <div className="status-head">
-                <h2 id="soil-info-title" className="status-community">{t('soilInfoTitle')}</h2>
-              </div>
-              <p className="soil-location">
-                {language === 'th' ? selectedCommunity.name_th : selectedCommunity.name_en} · {place?.lat.toFixed(3)}, {place?.lon.toFixed(3)}
-              </p>
-              {soilQuery.isPending && <p role="status">{t('soilLoading')}</p>}
-              {soilQuery.isError && (
-                <p className="status-message" role="alert">
-                  {t('soilLoadError')}{' '}
-                  <button type="button" className="inline-button" onClick={() => { void soilQuery.refetch(); }}>
-                    {t('retry')}
-                  </button>
-                </p>
-              )}
-              {soilQuery.data?.soil && (
+          {selectedCommunity && (
+            <section className={`map-inspector${inspectorExpanded ? ' is-expanded' : ' is-collapsed'}`}>
+              <header className="map-inspector-header">
+                <div>
+                  <h2>{t('inspectorTitle')}</h2>
+                  <p>{language === 'th' ? selectedCommunity.name_th : selectedCommunity.name_en}</p>
+                </div>
+                <button
+                  type="button"
+                  className="map-inspector-collapse"
+                  aria-expanded={inspectorExpanded}
+                  aria-label={t(inspectorExpanded ? 'inspectorCollapse' : 'inspectorExpand')}
+                  onClick={() => setInspectorExpanded((expanded) => !expanded)}
+                >
+                  {inspectorExpanded ? '−' : '+'}
+                </button>
+              </header>
+              {inspectorExpanded && (
                 <>
-                  <dl className="detail-grid">
-                    <dt>{t('soilType')}</dt>
-                    <dd>{translateSoilName(soilQuery.data.soil, language, t)} ({soilQuery.data.soil.soilCode})</dd>
-                    <dt>{t('soilTexture')}</dt>
-                    <dd>{translateSoilValue(soilQuery.data.soil.textureTh, language, t)}</dd>
-                    <dt>{t('soilPh')}</dt>
-                    <dd>{translateSoilValue(soilQuery.data.soil.phTopTh, language, t)}</dd>
-                    <dt>{t('soilFertility')}</dt>
-                    <dd>{translateSoilValue(soilQuery.data.soil.fertilityTh, language, t)}</dd>
-                    <dt>{t('soilAmphoe')}</dt>
-                    <dd>{translateSoilValue(soilQuery.data.soil.amphoeTh, language, t)}</dd>
-                    <dt>{t('soilDrainage')}</dt>
-                    <dd>{translateSoilValue(soilQuery.data.soil.drainageClass ?? '', language, t)}</dd>
-                    <dt>{t('soilSource')}</dt>
-                    <dd>{t('soilSourceName')}</dd>
-                  </dl>
-                  <p className="soil-resolution-note">{t('soilResolutionNotice')}</p>
+                  {showRisk && showSoilInfo && (
+                    <div className="map-inspector-tabs" role="tablist" aria-label={t('inspectorTitle')}>
+                      <button
+                        type="button"
+                        role="tab"
+                        id="inspector-risk-tab"
+                        aria-controls="location-inspector-panel"
+                        aria-selected={inspectorTabToShow === 'risk'}
+                        className={inspectorTabToShow === 'risk' ? 'is-active' : ''}
+                        onClick={() => setInspectorTab('risk')}
+                      >
+                        {t('layerRisk')}
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        id="inspector-soil-tab"
+                        aria-controls="location-inspector-panel"
+                        aria-selected={inspectorTabToShow === 'soil'}
+                        className={inspectorTabToShow === 'soil' ? 'is-active' : ''}
+                        onClick={() => setInspectorTab('soil')}
+                      >
+                        {t('soilInfoTitle')}
+                      </button>
+                    </div>
+                  )}
+                  <div
+                    id="location-inspector-panel"
+                    className="map-inspector-content"
+                    role={showRisk && showSoilInfo ? 'tabpanel' : undefined}
+                    aria-label={t(inspectorTabToShow === 'soil' ? 'soilInfoTitle' : 'layerRisk')}
+                    aria-labelledby={showRisk && showSoilInfo
+                      ? inspectorTabToShow === 'soil' ? 'inspector-soil-tab' : 'inspector-risk-tab'
+                      : undefined}
+                  >
+                    {inspectorTabToShow === 'risk' && showRisk && (
+                      <StatusCard
+                        community={selectedCommunity}
+                        risk={statusRisk}
+                        riskLoading={locationPending}
+                        riskError={pointRiskQuery.isError}
+                        retryRisk={() => { void pointRiskQuery.refetch(); }}
+                        pointNotice={statusRisk?.noticeTh ?? null}
+                        environment={environmentQuery.data}
+                        environmentLoading={environmentQuery.isPending}
+                        environmentError={environmentQuery.isError}
+                        retryEnvironment={() => { void environmentQuery.refetch(); }}
+                      />
+                    )}
+                    {inspectorTabToShow === 'risk' && !showRisk && (
+                      <div className="inspector-hint">
+                        <p>{t('riskLayerOffHint')}</p>
+                        <button type="button" className="action-button" onClick={() => toggleLayer('risk')}>
+                          {t('riskLayerTurnOn')}
+                        </button>
+                      </div>
+                    )}
+                    {inspectorTabToShow === 'soil' && showSoilInfo && (
+                      <section className="status-card soil-card" aria-labelledby="soil-info-title" aria-busy={soilQuery.isPending}>
+                        <div className="status-head">
+                          <h3 id="soil-info-title" className="status-community">{t('soilInfoTitle')}</h3>
+                        </div>
+                        <p className="soil-location">
+                          {language === 'th' ? selectedCommunity.name_th : selectedCommunity.name_en} · {place?.lat.toFixed(3)}, {place?.lon.toFixed(3)}
+                        </p>
+                        {soilQuery.isPending && <p role="status">{t('soilLoading')}</p>}
+                        {soilQuery.isError && (
+                          <p className="status-message" role="alert">
+                            {t('soilLoadError')}{' '}
+                            <button type="button" className="inline-button" onClick={() => { void soilQuery.refetch(); }}>
+                              {t('retry')}
+                            </button>
+                          </p>
+                        )}
+                        {soilQuery.data?.soil && (
+                          <>
+                            <dl className="detail-grid">
+                              <dt>{t('soilType')}</dt>
+                              <dd>{translateSoilName(soilQuery.data.soil, language, t)} ({soilQuery.data.soil.soilCode})</dd>
+                              <dt>{t('soilTexture')}</dt>
+                              <dd>{translateSoilValue(soilQuery.data.soil.textureTh, language, t)}</dd>
+                              <dt>{t('soilPh')}</dt>
+                              <dd>{translateSoilValue(soilQuery.data.soil.phTopTh, language, t)}</dd>
+                              <dt>{t('soilFertility')}</dt>
+                              <dd>{translateSoilValue(soilQuery.data.soil.fertilityTh, language, t)}</dd>
+                              <dt>{t('soilAmphoe')}</dt>
+                              <dd>{translateSoilValue(soilQuery.data.soil.amphoeTh, language, t)}</dd>
+                              <dt>{t('soilDrainage')}</dt>
+                              <dd>{translateSoilValue(soilQuery.data.soil.drainageClass ?? '', language, t)}</dd>
+                              <dt>{t('soilSource')}</dt>
+                              <dd>{t('soilSourceName')}</dd>
+                            </dl>
+                            <p className="soil-resolution-note">{t('soilResolutionNotice')}</p>
+                          </>
+                        )}
+                        {soilQuery.data && !soilQuery.data.soil && (
+                          <p className="status-message">{t('soilOutOfCoverage')}</p>
+                        )}
+                      </section>
+                    )}
+                  </div>
                 </>
               )}
-              {soilQuery.data && !soilQuery.data.soil && (
-                <p className="status-message">{t('soilOutOfCoverage')}</p>
-              )}
-            </section>
-          )}
-          {!showRisk && (
-            <section className="status-card status-card-hint" aria-label={t('layerRisk')}>
-              <p className="status-message">{t('riskLayerOffHint')}</p>
-              <button type="button" className="action-button" onClick={() => toggleLayer('risk')}>{t('riskLayerTurnOn')}</button>
             </section>
           )}
         </div>

@@ -2751,3 +2751,140 @@ body {
     overflow: auto;
   }
 }
+
+.map-inspector {
+  position: absolute;
+  z-index: 605;
+  bottom: calc(var(--map-timeline-height) + 12px);
+  left: 8px;
+  display: flex;
+  width: min(380px, calc(100vw - 16px));
+  max-height: min(62dvh, calc(100dvh - var(--map-timeline-height) - 180px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 0.9rem;
+  background: var(--color-panel);
+  box-shadow: 0 4px 20px rgb(8 20 34 / 28%);
+  color: var(--color-ink);
+  pointer-events: auto;
+}
+
+.map-inspector-header {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-canvas);
+  padding: 0.45rem 0.7rem;
+}
+
+.map-inspector-header h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.map-inspector-header p {
+  overflow: hidden;
+  margin: 0.1rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-inspector-collapse {
+  display: grid;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 0.55rem;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.map-inspector-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0.35rem 0.45rem 0;
+}
+
+.map-inspector-tabs button {
+  min-height: 40px;
+  flex: 1;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-weight: 700;
+}
+
+.map-inspector-tabs button.is-active {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.map-inspector-content {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.map-inspector .status-card {
+  position: static;
+  inset: auto;
+  width: auto;
+  min-width: 0;
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  border-top: 3px solid var(--color-risk-medium);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.map-inspector .status-card.status-high {
+  border-top-color: var(--color-risk-high);
+}
+
+.map-inspector .status-card.status-low {
+  border-top-color: var(--color-risk-low);
+}
+
+.map-inspector .status-card .sheet-toggle {
+  display: none;
+}
+
+.map-inspector .status-card .status-extra {
+  display: grid;
+}
+
+.map-inspector .soil-card {
+  background: transparent;
+}
+
+.inspector-hint {
+  padding: 0.75rem;
+}
+
+@media (max-width: 767px) {
+  .map-inspector {
+    bottom: calc(var(--map-timeline-height) + 24px);
+    width: min(360px, calc(100vw - 16px));
+    max-height: min(220px, calc(100dvh - var(--map-timeline-height) - 420px));
+  }
+
+  .map-ui.is-inspecting .layer-panel,
+  .map-ui.is-inspecting .legend-panel,
+  .map-ui.is-inspecting .map-controls {
+    visibility: hidden;
+  }
+}

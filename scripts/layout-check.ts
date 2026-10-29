@@ -66,6 +66,8 @@ try {
   await page.goto(`${baseUrl}/?lat=13.7563&lon=100.5018&name=เขตมีนบุรี`);
   await page.locator('.status-card[aria-busy="false"]').waitFor({ state: 'visible' });
 
+  const inspectorToggle = page.locator('.map-inspector-collapse');
+  if (await inspectorToggle.getAttribute('aria-expanded') === 'true') await inspectorToggle.click();
   const layerToggle = page.getByRole('button', { name: /ชั้นข้อมูลบนแผนที่/ });
   if (await layerToggle.getAttribute('aria-expanded') !== 'true') await layerToggle.click();
   const radarToggle = page.locator('.layer-button').nth(1);
@@ -81,7 +83,8 @@ try {
     await page.locator('.slider-panel').waitFor({ state: 'visible' });
     await page.waitForTimeout(100);
     const measurements = await page.evaluate((panelSelectors) => {
-      const cardElement = document.querySelector('.status-card');
+      const cardElement = document.querySelector('.map-inspector') ??
+        document.querySelector('.status-card');
       const timelineElement = document.querySelector('.slider-panel');
       const card = cardElement?.getBoundingClientRect();
       const timeline = timelineElement?.getBoundingClientRect();
@@ -94,14 +97,14 @@ try {
         ),
         panelCardOverlap: panelSelectors.filter((selector) => {
           const element = document.querySelector(selector);
-          if (!element || !card) return false;
+          if (!element || !card || getComputedStyle(element).visibility === 'hidden') return false;
           const box = element.getBoundingClientRect();
           return box.width > 0 && box.left < card.right && box.right > card.left &&
             box.top < card.bottom && box.bottom > card.top;
         }),
         panelTimelineOverlap: panelSelectors.filter((selector) => {
           const element = document.querySelector(selector);
-          if (!element || !timeline) return false;
+          if (!element || !timeline || getComputedStyle(element).visibility === 'hidden') return false;
           const box = element.getBoundingClientRect();
           return box.width > 0 && box.left < timeline.right && box.right > timeline.left &&
             box.top < timeline.bottom && box.bottom > timeline.top;
