@@ -366,7 +366,7 @@ const messages = {
   },
   en: {
     brandTitle: 'RAINBOMB',
-    brandSubtitle: 'Rain and flood monitoring',
+    brandSubtitle: 'PREDICT THE RAIN PROTECT THE PEOPLE',
     overview: 'Overview',
     forecast: 'Forecast',
     alerts: 'Alerts',
