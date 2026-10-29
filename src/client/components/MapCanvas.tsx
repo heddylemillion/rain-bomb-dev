@@ -63,6 +63,16 @@ function bindSoilTooltip(
   const soilName = translateSoilName(feature.properties, language, t);
   const texture = translateSoilValue(feature.properties.textureTh, language, t);
   layer.bindTooltip(`${soilName} (${soilCode}) · ${texture}`);
+
+  if (layer instanceof L.Path) {
+    layer.on('mouseover', () => {
+      layer.setStyle({ color: '#fff', weight: 3.5, opacity: 1 });
+      layer.bringToFront();
+    });
+    layer.on('mouseout', () => {
+      layer.setStyle(soilPathStyle(feature));
+    });
+  }
 }
 
 const iconCache = new Map<string, L.DivIcon>();
