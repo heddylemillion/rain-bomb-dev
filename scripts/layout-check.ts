@@ -125,6 +125,26 @@ try {
     await radarToggle.click();
     await page.locator('.slider-panel').waitFor({ state: 'hidden' });
   }
+
+  await page.setViewportSize({ width: 1366, height: 812 });
+  if (await inspectorToggle.getAttribute('aria-expanded') !== 'true') await inspectorToggle.click();
+  const inspectorPosition = await page.locator('.map-inspector').evaluate((element) => {
+    const { top, left } = element.getBoundingClientRect();
+    return { top, left };
+  });
+  await radarToggle.click();
+  await page.locator('.slider-panel').waitFor({ state: 'visible' });
+  const inspectorPositionWithRadar = await page.locator('.map-inspector').evaluate((element) => {
+    const { top, left } = element.getBoundingClientRect();
+    return { top, left };
+  });
+  assert(
+    Math.abs(inspectorPosition.top - inspectorPositionWithRadar.top) < 1 &&
+      Math.abs(inspectorPosition.left - inspectorPositionWithRadar.left) < 1,
+    'Inspector should remain in the same position when radar is enabled'
+  );
+  await radarToggle.click();
+  await page.locator('.slider-panel').waitFor({ state: 'hidden' });
 } finally {
   await browser.close();
 }

@@ -2888,3 +2888,11 @@ body {
     visibility: hidden;
   }
 }
+
+@media (min-width: 1280px) {
+  .map-inspector {
+    bottom: 12px;
+    width: min(380px, 28vw);
+    max-height: min(62dvh, calc(100dvh - 24px));
+  }
+}
