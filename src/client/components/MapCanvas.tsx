@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import { GeoJSON, MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -42,6 +42,11 @@ const SOIL_TEXTURE_STYLES: Record<string, L.PathOptions> = {
   water: { color: '#356c8a', fillColor: '#78b6d2', dashArray: '1 4' },
 };
 
+interface SoilPathSelection {
+  layer: L.Path;
+  feature: { properties: SoilInfo };
+}
+
 function soilPathStyle(feature: { properties: SoilInfo } | undefined): L.PathOptions {
   const texture = feature?.properties.textureTh;
   const style = texture ? SOIL_TEXTURE_STYLES[texture] : SOIL_TEXTURE_STYLES['water'];
@@ -53,11 +58,23 @@ function soilPathStyle(feature: { properties: SoilInfo } | undefined): L.PathOpt
   };
 }
 
+function selectedSoilPathStyle(feature: { properties: SoilInfo }): L.PathOptions {
+  return {
+    ...soilPathStyle(feature),
+    color: '#fff',
+    weight: 3,
+    opacity: 1,
+    fillColor: '#22c55e',
+    fillOpacity: 0.45,
+  };
+}
+
 function bindSoilTooltip(
   feature: { properties: SoilInfo },
   layer: L.Layer,
   language: 'th' | 'en',
-  t: (key: MessageKey) => string
+  t: (key: MessageKey) => string,
+  selectedSoilPath: { current: SoilPathSelection | null }
 ): void {
   const { soilCode } = feature.properties;
   const soilName = translateSoilName(feature.properties, language, t);
@@ -65,12 +82,29 @@ function bindSoilTooltip(
   layer.bindTooltip(`${soilName} (${soilCode}) · ${texture}`);
 
   if (layer instanceof L.Path) {
+    layer.on('click', (event: L.LeafletMouseEvent) => {
+      L.DomEvent.stopPropagation(event.originalEvent);
+      if (selectedSoilPath.current?.layer === layer) {
+        return;
+      }
+
+      selectedSoilPath.current?.layer.setStyle(
+        soilPathStyle(selectedSoilPath.current.feature)
+      );
+      selectedSoilPath.current = { layer, feature };
+      layer.setStyle(selectedSoilPathStyle(feature));
+      layer.bringToFront();
+    });
     layer.on('mouseover', () => {
       layer.setStyle({ color: '#fff', weight: 3.5, opacity: 1 });
       layer.bringToFront();
     });
     layer.on('mouseout', () => {
-      layer.setStyle(soilPathStyle(feature));
+      layer.setStyle(
+        selectedSoilPath.current?.layer === layer
+          ? selectedSoilPathStyle(feature)
+          : soilPathStyle(feature)
+      );
     });
   }
 }
@@ -264,6 +298,7 @@ export function MapCanvas({
   onBaseTilesFailed,
 }: MapCanvasProps): React.ReactNode {
   const { t, language } = useTranslation();
+  const selectedSoilPath = useRef<SoilPathSelection | null>(null);
   const reduceMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
   const bounds = useMemo(
     () => communities.length > 0
@@ -322,7 +357,9 @@ export function MapCanvas({
             key={`soil-layer-${language}`}
             data={soilLayer}
             style={soilPathStyle}
-            onEachFeature={(feature, layer) => bindSoilTooltip(feature, layer, language, t)}
+            onEachFeature={(feature, layer) =>
+              bindSoilTooltip(feature, layer, language, t, selectedSoilPath)
+            }
           />
         )}
         {showRisk && (
