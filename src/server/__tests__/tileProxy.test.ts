@@ -27,6 +27,7 @@ describe('Xweather raster tile proxy', () => {
     const app = createApp({
       config: loadConfig({
         NODE_ENV: 'test',
+        DATA_MODE: 'live',
         XWEATHER_CLIENT_ID: clientId,
         XWEATHER_CLIENT_SECRET: clientSecret,
       }),
@@ -62,6 +63,7 @@ describe('Xweather raster tile proxy', () => {
     const app = createApp({
       config: loadConfig({
         NODE_ENV: 'test',
+        DATA_MODE: 'live',
         XWEATHER_CLIENT_ID: clientId,
         XWEATHER_CLIENT_SECRET: clientSecret,
       }),

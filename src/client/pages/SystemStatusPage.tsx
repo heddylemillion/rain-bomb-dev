@@ -27,6 +27,7 @@ function CapabilityCard({
     no_plan: 'reasonNoPlan',
     no_coverage: 'reasonNoCoverage',
     error: 'reasonError',
+    mock: 'reasonMock',
   } as const;
 
   return (

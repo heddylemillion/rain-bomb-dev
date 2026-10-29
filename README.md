@@ -26,8 +26,10 @@ responses are used as test fixtures.
 
 Open-Meteo providers are controlled on the backend by `DATA_MODE=mock|live|cache`
 (default `mock`). Mock mode returns deterministic, visibly simulated provider
-data and makes no Open-Meteo requests. Live mode queries providers, while cache
-mode never makes an upstream request. Elevation values are stored permanently
+data and makes no requests to Open-Meteo, Xweather, OSM tile, or Nominatim
+hosts. The mock basemap is a plain local background; location search uses only
+configured pilot communities and reverse geocoding returns no result. Live mode
+queries providers, while cache mode never makes an upstream request. Elevation values are stored permanently
 in the ignored `data/elevation-cache.json` file by ~100 m coordinate cell;
 Marine forecasts are cached for 45 minutes in `data/marine-cache.json`. Missing,
 invalid, and failed values remain missing rather than being replaced with
@@ -45,8 +47,33 @@ deployment.
 configured account. `available` means that the request was authorized; it
 does not prove that a raster tile contains data over Thailand. `no_plan`,
 `no_coverage`, and `error` are reported separately where the provider response
-allows that distinction. The map disables unavailable layers and displays the
-reason.
+allows that distinction. These real checks and provider-backed layers are used
+only in live mode; their behavior is unchanged by the mock implementation. In
+mock mode, radar, lightning, storms, and risk are returned as available with
+`mock: true` and `reason: "mock"` without contacting Xweather.
+
+### Deterministic mock weather overlays
+
+The map enables local canvas radar, lightning, and storm overlays by default
+in mock mode. Choose `calm`, `moderate`, or `burst` from the demo control, or
+set `?scenario=calm|moderate|burst`. The same scenario is used for the layers,
+the timeline, and risk inputs; each is seeded by its name and UTC date. The
+timeline spans −3 to +3 hours in 10-minute steps. It uses 16 world-fixed cells
+around central Thailand. The central cell is anchored near
+13.7563,100.5018; its peak rates are 0.8, 12, and 82 mm/h for calm, moderate,
+and burst, respectively. Surrounding cell peaks are seeded within 0.25–1.0 of
+1.4, 11, and 58 mm/h. Cell radii are 5–19 km (14 km for the central cell),
+movement is seeded at 5–23 km/h (2 km/h for the central cell), and the
+intensity uses a Gaussian core with a 45-minute growth and 60-minute decay
+envelope. No values are sourced from observations. The mock risk inputs are
+derived from these cells and strikes and then evaluated by the same configured
+risk engine used for live data; scenario levels are covered by tests at the
+default demo point.
+
+The mock basemap is intentionally plain to avoid even tile-host requests.
+Overlay legends and the scenario selector are in the layer panel; the panel
+and timeline are keyboard accessible. A visible demo banner and map badge
+identify simulated content.
 
 `GET /api/risk?lat=...&lon=...` accepts points within Thailand and rounds
 coordinates to two decimal places for cache keys. It gathers conditions,
@@ -78,7 +105,7 @@ The backend's existing shared API limiter allows 120 `/api` requests per
 5,000/hour, 10,000/day, and 300,000/month; upstream limits were not
 load-tested by this application.
 
-The official Xweather plan probe currently reports `no_plan` for observations,
+The live-mode official Xweather plan probe currently reports `no_plan` for observations,
 forecasts, archive history, lightning, alerts, radar tiles, and tropical
 cyclone tiles. Xweather documents `radar-global` as global and updated every
 two minutes; `radar` does not list Thailand among its regions. A successful
@@ -88,10 +115,10 @@ negative hours, but the selected frames and actual frame timestamps have not
 been verified against this account. The radar UI is available only when the
 capability endpoint reports access.
 
-The browser uses the backend tile proxy at `/api/tiles/*`; Xweather map
-credentials are added only by the server. OpenStreetMap and Xweather
-attributions are displayed in the dashboard. Data polling pauses while the
-tab is hidden.
+In live mode, the browser uses the backend tile proxy at `/api/tiles/*`;
+Xweather map credentials are added only by the server. OpenStreetMap and
+Xweather attributions are displayed for live maps. In mock mode the map is
+local-only and labels its synthetic weather layers as simulated.
 
 ## Open-Meteo verification and attribution
 

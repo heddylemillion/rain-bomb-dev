@@ -14,6 +14,7 @@ import {
   selectSeaReferencePoint,
   type SeaReferencePoint,
 } from '../services/environmentDataService.js';
+import { XweatherClient } from '../services/xweatherClient.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -370,6 +371,45 @@ describe('Open-Meteo Marine provider', () => {
       },
     });
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('enables mock map overlays without making quota-limited provider requests', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const externalFetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+      new Error('Mock mode must not make external requests')
+    );
+    const xweatherClient = new XweatherClient({
+      baseUrl: 'https://data.api.xweather.com',
+      clientId: 'mock-capabilities-test',
+      clientSecret: 'mock-capabilities-secret',
+      fetchImpl,
+    });
+    const app = createApp({
+      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'mock' }),
+      xweatherClient,
+    });
+
+    try {
+      const capabilities = await request(app).get('/api/capabilities').expect(200);
+      for (const id of ['radar-layer', 'lightning', 'tropical-cyclones']) {
+        expect(capabilities.body.capabilities).toEqual(expect.arrayContaining([
+          expect.objectContaining({ id, available: true, mock: true, reason: 'mock' }),
+        ]));
+      }
+      await request(app)
+        .get('/api/risk?lat=13.7563&lon=100.5018&scenario=moderate&date=2026-10-29&offsetMin=0')
+        .expect(200)
+        .expect(({ body }) => expect(body.isMock).toBe(true));
+      await request(app).get('/api/map/tiles/6/49/30.png').expect(200);
+      await request(app).get('/api/tiles/radar/6/49/30/current.png').expect(200);
+      await request(app).get('/api/geocode?q=Bangkok').expect(200);
+      await request(app).get('/api/reverse-geocode?lat=13.75&lon=100.50').expect(200, { result: null });
+      await request(app).get('/api/weather/sample-community').expect(503);
+      expect(fetchImpl).not.toHaveBeenCalled();
+      expect(externalFetch).not.toHaveBeenCalled();
+    } finally {
+      externalFetch.mockRestore();
+    }
   });
 });
 

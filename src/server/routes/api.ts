@@ -16,6 +16,8 @@ import { RiskDataService } from '../services/riskDataService.js';
 import type { WeatherService } from '../services/weatherService.js';
 import { XweatherClientError } from '../services/xweatherClient.js';
 import type { CapabilitiesResponse } from '../../shared/contracts.js';
+import { CAPABILITY_IDS } from '../../shared/contracts.js';
+import type { MockScenarioName } from '../../shared/mockWeatherScenario.js';
 import {
   RasterTileLayerSchema,
   RadarOffsetSchema,
@@ -48,6 +50,12 @@ export const PointQuerySchema = z.object({
   lon: z.coerce.number().finite().min(97).max(106),
 });
 
+export const RiskQuerySchema = PointQuerySchema.extend({
+  scenario: z.enum(['calm', 'moderate', 'burst']).optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  offsetMin: z.coerce.number().int().min(-180).max(180).multipleOf(10).optional(),
+});
+
 export const GeocodeQuerySchema = z.object({
   q: z.string().trim().min(3).max(120),
   lang: z.enum(['th', 'en']).default('th'),
@@ -56,6 +64,10 @@ export const GeocodeQuerySchema = z.object({
 export function createApiRouter(deps: ApiRouterDeps): Router {
   const router = Router();
   const rasterCache = new NodeCache({ stdTTL: 300, checkperiod: 60, useClones: false });
+  const transparentTile = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    'base64'
+  );
   let capabilityCache: { response: CapabilitiesResponse; expiresAt: number } | null = null;
   let capabilityRequest: Promise<CapabilitiesResponse> | null = null;
 
@@ -63,6 +75,22 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     if (capabilityCache && capabilityCache.expiresAt > Date.now()) return capabilityCache.response;
     if (capabilityRequest) return capabilityRequest;
     const request = (async () => {
+      if (deps.dataMode === 'mock') {
+        const checkedAt = new Date().toISOString();
+        const mockIds = new Set(['risk-summary', 'radar-layer', 'lightning', 'tropical-cyclones']);
+        return {
+          capabilities: CAPABILITY_IDS.map((id) => ({
+            id,
+            available: mockIds.has(id),
+            reason: mockIds.has(id) ? 'mock' as const : 'error' as const,
+            ...(mockIds.has(id) ? { mock: true } : {}),
+            checkedAt,
+          })),
+          checkedAt,
+          isMock: true,
+          demoMode: deps.demoMode,
+        };
+      }
       if (!deps.xweatherClient.hasCredentials()) {
         return getErrorCapabilities(new Date().toISOString(), deps.demoMode);
       }
@@ -129,6 +157,32 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       res.status(400).json({ error: { code: 'INVALID_QUERY', messageTh: 'กรุณาค้นหาด้วยคำอย่างน้อย 3 ตัวอักษร' } });
       return;
     }
+    if (deps.dataMode === 'mock') {
+      try {
+        const query = parsed.data.q.toLocaleLowerCase(parsed.data.lang === 'th' ? 'th-TH' : 'en');
+        const communities = await loadCommunities();
+        const results = communities
+          .filter((community) =>
+            community.name_th.toLocaleLowerCase('th-TH').includes(query) ||
+            community.name_en.toLocaleLowerCase('en').includes(query)
+          )
+          .slice(0, 5)
+          .map((community) => ({
+            lat: community.lat,
+            lon: community.lon,
+            name: parsed.data.lang === 'th' ? community.name_th : community.name_en,
+            district: '',
+            province: '',
+            displayName: parsed.data.lang === 'th' ? community.name_th : community.name_en,
+          }));
+        res.status(200).json({ results });
+      } catch (error: unknown) {
+        const safeMessage = redactSecretsInText(error instanceof Error ? error.message : String(error));
+        logger.error({ error: safeMessage }, 'Failed to load local mock search candidates');
+        res.status(500).json({ error: { code: 'COMMUNITIES_CONFIG_ERROR', messageTh: 'โหลดรายการค้นหาในโหมดสาธิตไม่สำเร็จ' } });
+      }
+      return;
+    }
     try {
       const results = await deps.geocodingProvider.search(parsed.data.q, parsed.data.lang);
       res.status(200).json({ results });
@@ -143,6 +197,10 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
       return;
     }
+    if (deps.dataMode === 'mock') {
+      res.status(200).json({ result: null });
+      return;
+    }
     try {
       const result = await deps.geocodingProvider.reverse(parsed.data.lat, parsed.data.lon, 'th');
       res.status(200).json({ result });
@@ -152,15 +210,19 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   });
 
   router.get('/risk', async (req: Request, res: Response) => {
-    const parsed = PointQuerySchema.safeParse(req.query);
+    const parsed = RiskQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
       return;
     }
-    const lat = Number(parsed.data.lat.toFixed(2));
-    const lon = Number(parsed.data.lon.toFixed(2));
+    const lat = deps.dataMode === 'mock' ? parsed.data.lat : Number(parsed.data.lat.toFixed(2));
+    const lon = deps.dataMode === 'mock' ? parsed.data.lon : Number(parsed.data.lon.toFixed(2));
     try {
-      const result = await deps.riskDataService.getPointRisk(lat, lon);
+      const result = await deps.riskDataService.getPointRisk(lat, lon, {
+        scenario: parsed.data.scenario as MockScenarioName | undefined,
+        date: parsed.data.date,
+        offsetMin: parsed.data.offsetMin,
+      });
       res.status(200).json(result);
     } catch (error: unknown) {
       const safeMessage = redactSecretsInText(error instanceof Error ? error.message : String(error));
@@ -192,6 +254,14 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       res.status(400).json({
         error: { code: 'INVALID_TILE', messageTh: 'พิกัดแผนที่ไม่ถูกต้อง' },
       });
+      return;
+    }
+    if (deps.dataMode === 'mock') {
+      res.status(200)
+        .set('Content-Type', 'image/png')
+        .set('Cache-Control', 'public, max-age=3600')
+        .set('X-Content-Type-Options', 'nosniff')
+        .send(transparentTile);
       return;
     }
 
@@ -249,6 +319,14 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     const { z, x, y } = coordinates.data;
     if (x >= 2 ** z || y >= 2 ** z) {
       res.status(400).json({ error: { code: 'INVALID_TILE', messageTh: 'พิกัดแผนที่ไม่ถูกต้อง' } });
+      return;
+    }
+    if (deps.dataMode === 'mock') {
+      res.status(200)
+        .set('Content-Type', 'image/png')
+        .set('Cache-Control', 'public, max-age=300')
+        .set('X-Content-Type-Options', 'nosniff')
+        .send(transparentTile);
       return;
     }
     if (!deps.xweatherClient.hasCredentials()) {
@@ -405,6 +483,15 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     }
 
     const communityId = parsedParam.data;
+    if (deps.dataMode === 'mock') {
+      res.status(503).json({
+        error: {
+          code: 'MOCK_WEATHER_UNAVAILABLE',
+          messageTh: 'ข้อมูลพยากรณ์รายชั่วโมงของหน้านี้ยังไม่มีในโหมดสาธิต ใช้ข้อมูลจำลองในแผนที่ได้',
+        },
+      });
+      return;
+    }
     const community = await findCommunityById(communityId);
     if (!community) {
       res.status(404).json({

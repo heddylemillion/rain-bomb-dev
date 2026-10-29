@@ -286,13 +286,16 @@ export const CapabilityReasonSchema = z.enum([
   'no_plan',
   'no_coverage',
   'error',
+  'mock',
 ]);
 export type CapabilityReason = z.infer<typeof CapabilityReasonSchema>;
+export type RiskDataReason = Exclude<CapabilityReason, 'mock'>;
 
 export const CapabilitySchema = z.object({
   id: CapabilityIdSchema,
   available: z.boolean(),
   reason: CapabilityReasonSchema,
+  mock: z.boolean().optional(),
   checkedAt: z.string().datetime({ offset: true }),
 });
 

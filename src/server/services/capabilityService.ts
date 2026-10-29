@@ -2,6 +2,7 @@ import type {
   CapabilitiesResponse,
   Capability,
   CapabilityId,
+  RiskDataReason,
 } from '../../shared/contracts.js';
 import { CAPABILITY_IDS } from '../../shared/contracts.js';
 import type { CommunityConfig } from '../types/weather.js';
@@ -25,7 +26,7 @@ export function getErrorCapabilities(
   };
 }
 
-function classifyProbeError(error: unknown): Capability['reason'] {
+function classifyProbeError(error: unknown): RiskDataReason {
   if (!(error instanceof XweatherClientError)) {
     return 'error';
   }

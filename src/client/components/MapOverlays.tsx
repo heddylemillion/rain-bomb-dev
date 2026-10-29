@@ -107,6 +107,7 @@ export interface LayerAvailability {
   available: boolean;
   reason: Capability['reason'];
   updatedAt: string | null;
+  mock?: boolean;
 }
 
 function unavailableText(reason: Capability['reason']): MessageKey {
@@ -124,11 +125,19 @@ export function LayerPanel({
   active,
   onToggle,
   defaultOpen,
+  mockMode = false,
+  scenario = 'moderate',
+  onScenarioChange,
+  mockOverlays = new Set(),
 }: {
   layers: LayerAvailability[];
   active: ReadonlySet<MapLayerId>;
   onToggle: (id: MapLayerId) => void;
   defaultOpen: boolean;
+  mockMode?: boolean;
+  scenario?: 'calm' | 'moderate' | 'burst';
+  onScenarioChange?: (name: 'calm' | 'moderate' | 'burst') => void;
+  mockOverlays?: ReadonlySet<OverlayLayerId>;
 }): React.ReactNode {
   const { t, language } = useTranslation();
   const [open, setOpen] = useState(defaultOpen);
@@ -141,10 +150,12 @@ export function LayerPanel({
         aria-controls="layer-list"
         onClick={() => setOpen((value) => !value)}
       >
-        {t('mapLayers')} <span aria-hidden="true">{open ? '▴' : '▾'}</span>
+        {t('mapLayers')}
+        {mockMode && mockOverlays.size > 0 && <span className="mock-map-badge">{t('mockMapBadge')}</span>}
+        <span aria-hidden="true">{open ? '▴' : '▾'}</span>
       </button>
       <ul id="layer-list" className="layer-list" aria-label={t('mapLayers')}>
-        {layers.map(({ id, available, reason, updatedAt }) => {
+        {layers.map(({ id, available, reason, updatedAt, mock }) => {
           const on = active.has(id);
           return (
             <li key={id}>
@@ -160,7 +171,11 @@ export function LayerPanel({
                   <span className="layer-name">{t(LAYER_LABEL[id])}</span>
                   <span className="layer-state">
                     {available ? (on ? `✓ ${t('layerOn')}` : t('layerOff')) : t(unavailableText(reason))}
-                    {updatedAt && <span className="layer-updated"> · {t('updatedAt')} {formatClock(updatedAt, language)}</span>}
+                    {mock && <span className="mock-layer-pill">{t('mockPill')}</span>}
+                    {mock && on && (
+                      <span className="layer-updated"> · {t('mockUpdated')} {formatClock(updatedAt ?? new Date().toISOString(), language)}</span>
+                    )}
+                    {!mock && updatedAt && <span className="layer-updated"> · {t('updatedAt')} {formatClock(updatedAt, language)}</span>}
                   </span>
                 </span>
               </button>
@@ -168,6 +183,38 @@ export function LayerPanel({
           );
         })}
       </ul>
+      {mockMode && onScenarioChange && (
+        <div className="scenario-control">
+          <label htmlFor="mock-scenario">{t('mockScenarioLabel')}</label>
+          <select
+            id="mock-scenario"
+            value={scenario}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (next === 'calm' || next === 'moderate' || next === 'burst') onScenarioChange(next);
+            }}
+          >
+            <option value="calm">{t('scenarioCalm')}</option>
+            <option value="moderate">{t('scenarioModerate')}</option>
+            <option value="burst">{t('scenarioBurst')}</option>
+          </select>
+          <details className="mock-layer-legend">
+            <summary>{t('mockLegendTitle')}</summary>
+            {mockOverlays.has('radar') && (
+              <div>
+                <strong>{t('mockRadarLegend')}</strong>
+                <div className="mock-radar-ramp"><span>0.2</span><span>2</span><span>5</span><span>10</span><span>20</span><span>40+</span></div>
+              </div>
+            )}
+            {mockOverlays.has('lightning') && (
+              <div><strong>{t('mockLightningLegend')}</strong><p>⚡ {t('mockAgeRecent')} · ⚡ {t('mockAgeMid')} · ⚡ {t('mockAgeOld')}</p></div>
+            )}
+            {mockOverlays.has('storm') && (
+              <div><strong>{t('mockStormLegend')}</strong><p>⛈ {t('mockStormPathHint')}</p></div>
+            )}
+          </details>
+        </div>
+      )}
     </div>
   );
 }
@@ -265,16 +312,30 @@ const PLAY_INTERVAL_MS = 1400;
 export function RadarSlider({
   hours,
   onChange,
+  mockMode = false,
+  minutes = 0,
+  onMinutesChange,
+  opacity = 0.7,
+  onOpacityChange,
 }: {
   hours: number;
   onChange: (hours: number) => void;
+  mockMode?: boolean;
+  minutes?: number;
+  onMinutesChange?: (minutes: number) => void;
+  opacity?: number;
+  onOpacityChange?: (opacity: number) => void;
 }): React.ReactNode {
   const { t } = useTranslation();
   const [playing, setPlaying] = useState(false);
   const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
+  const reduceMotion = useRef(window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const index = Math.max(0, RADAR_HOURS.indexOf(hours as (typeof RADAR_HOURS)[number]));
   const indexRef = useRef(index);
   indexRef.current = index;
+  const minuteIndex = Math.max(0, Math.min(36, Math.round((minutes + 180) / 10)));
+  const minuteIndexRef = useRef(minuteIndex);
+  minuteIndexRef.current = minuteIndex;
 
   useEffect(() => {
     const updateVisibility = (): void => setVisible(document.visibilityState === 'visible');
@@ -283,17 +344,27 @@ export function RadarSlider({
   }, []);
 
   useEffect(() => {
-    if (!playing || !visible) {
+    if (!playing || !visible || (mockMode && reduceMotion.current)) {
       return undefined;
     }
     const timer = window.setInterval(() => {
+      if (mockMode) {
+        const next = (minuteIndexRef.current + 1) % 37;
+        onMinutesChange?.(next * 10 - 180);
+        return;
+      }
       const next = (indexRef.current + 1) % RADAR_HOURS.length;
       onChange(RADAR_HOURS[next] ?? 0);
     }, PLAY_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [onChange, playing, visible]);
+  }, [mockMode, onChange, onMinutesChange, playing, visible]);
 
   const currentLabel = t(HOUR_LABEL[hours] ?? 'timeNow');
+  const mockTime = new Intl.DateTimeFormat('th-TH', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Bangkok',
+  }).format(new Date(Date.now() + minutes * 60_000));
   return (
     <div className="map-panel slider-panel">
       <div className="slider-row">
@@ -301,36 +372,68 @@ export function RadarSlider({
           type="button"
           className="map-button play-button"
           aria-pressed={playing}
+          disabled={mockMode && reduceMotion.current}
           onClick={() => setPlaying((value) => !value)}
         >
           <span aria-hidden="true">{playing ? '❚❚' : '▶'}</span> {playing ? t('timePause') : t('timePlay')}
         </button>
         <div className="slider-main">
           <label htmlFor="radar-time" className="slider-title">
-            {t('timeSliderLabel')}: <strong>{currentLabel}</strong>
+            {mockMode ? t('mockTimelineLabel') : t('timeSliderLabel')}: <strong>{mockMode ? `${minutes > 0 ? '+' : ''}${minutes} นาที · ${mockTime}` : currentLabel}</strong>
           </label>
           <input
             id="radar-time"
             type="range"
             className="slider-input"
-            min={0}
-            max={RADAR_HOURS.length - 1}
-            step={1}
-            value={index}
-            aria-valuetext={currentLabel}
+            min={mockMode ? 0 : 0}
+            max={mockMode ? 36 : RADAR_HOURS.length - 1}
+            step={mockMode ? 1 : 1}
+            value={mockMode ? minuteIndex : index}
+            aria-valuetext={mockMode ? `${minutes} นาที · ${mockTime}` : currentLabel}
             onChange={(event) => {
               setPlaying(false);
-              onChange(RADAR_HOURS[Number(event.target.value)] ?? 0);
+              if (mockMode) onMinutesChange?.(Number(event.target.value) * 10 - 180);
+              else onChange(RADAR_HOURS[Number(event.target.value)] ?? 0);
             }}
           />
           <div className="slider-ticks" aria-hidden="true">
-            <span>{t('timePast3')}</span>
-            <span>{t('timePast1')}</span>
-            <span style={{ fontWeight: index === NOW_INDEX ? 800 : 500 }}>{t('timeNow')}</span>
+            {mockMode ? (
+              <>
+                <span>−3 ชม.</span>
+                <span style={{ fontWeight: minutes === 0 ? 800 : 500 }}>{t('timeNow')}</span>
+                <span>+3 ชม.</span>
+              </>
+            ) : (
+              <>
+                <span>{t('timePast3')}</span>
+                <span>{t('timePast1')}</span>
+                <span style={{ fontWeight: index === NOW_INDEX ? 800 : 500 }}>{t('timeNow')}</span>
+              </>
+            )}
           </div>
         </div>
       </div>
-      <p className="slider-note">{t('radarPastOnly')} · {t('radarTilesUnverified')} · Xweather</p>
+      {mockMode ? (
+        <>
+          <p className="slider-note">{t('mockStepLabel')}</p>
+          <div className="mock-radar-opacity">
+            <label htmlFor="mock-radar-opacity">{t('mockRadarOpacity')}</label>
+            <input
+              id="mock-radar-opacity"
+              type="range"
+              min={0.2}
+              max={1}
+              step={0.05}
+              value={opacity}
+              onChange={(event) => onOpacityChange?.(Number(event.target.value))}
+              aria-valuetext={`${Math.round(opacity * 100)}%`}
+            />
+            <span>{Math.round(opacity * 100)}%</span>
+          </div>
+        </>
+      ) : (
+        <p className="slider-note">{t('radarPastOnly')} · {t('radarTilesUnverified')} · Xweather</p>
+      )}
     </div>
   );
 }

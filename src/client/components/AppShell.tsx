@@ -128,10 +128,14 @@ export function AppShell(): React.ReactNode {
         {isMapRoute && (
           <p className="disclaimer disclaimer-note">
             {t('locationPrivacy')} ·{' '}
-            <a className="footer-link" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
-              {t('mapAttribution')}
-            </a>
-            {' · '}{t('weatherAttribution')}
+            {runtimeConfig.data?.dataMode === 'mock'
+              ? t('mockMapAttribution')
+              : (
+                <a className="footer-link" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">
+                  {t('mapAttribution')}
+                </a>
+              )}
+            {' · '}{runtimeConfig.data?.dataMode === 'mock' ? t('mockWeatherAttribution') : t('weatherAttribution')}
           </p>
         )}
       </footer>

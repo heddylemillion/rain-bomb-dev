@@ -114,7 +114,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
       xweatherClient,
       cacheStore,
       hasXweatherCredentials: xweatherClient.hasCredentials(),
-      riskDataService: new RiskDataService(xweatherClient),
+      riskDataService: new RiskDataService(xweatherClient, cfg.dataMode),
       demoMode: cfg.demoMode,
       dataMode: cfg.dataMode,
       environmentDataService: options.environmentDataService ?? new EnvironmentDataService({

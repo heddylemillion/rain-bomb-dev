@@ -62,9 +62,13 @@ export async function reverseGeocode(
 export async function fetchPointRisk(
   lat: number,
   lon: number,
-  signal: AbortSignal
+  signal: AbortSignal,
+  options: { scenario?: 'calm' | 'moderate' | 'burst'; date?: string; offsetMin?: number } = {}
 ): Promise<PointRiskResponse> {
   const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+  if (options.scenario) params.set('scenario', options.scenario);
+  if (options.date) params.set('date', options.date);
+  if (options.offsetMin !== undefined) params.set('offsetMin', String(options.offsetMin));
   const payload = await getJson(`/api/risk?${params}`, signal);
   return PointRiskResponseSchema.parse(payload);
 }

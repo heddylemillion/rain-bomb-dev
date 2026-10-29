@@ -57,7 +57,7 @@ describe('Xweather normalization, data availability, and caching', () => {
   });
 
   it('returns real capability errors and no seeded communities when credentials are absent', async () => {
-    const app = createApp({ config: loadConfig({ NODE_ENV: 'test' }) });
+    const app = createApp({ config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'live' }) });
     const health = await request(app).get('/api/health');
     expect(health.status).toBe(200);
     expect(health.body.demoMode).toBe(false);

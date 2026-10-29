@@ -358,7 +358,9 @@ export function StatusCard({
                         <td>{factor.available ? `${formatNumber(factor.rawValue)} ${factor.unit}` : t('noData')}</td>
                         <td>{factor.normalized === null ? '—' : formatNumber(factor.normalized, 2)}</td>
                         <td>{formatNumber(factor.weight, 2)}</td>
-                        <td>{t(FACTOR_SOURCE_KEYS[factor.id])}{!factor.available ? ` · ${t(REASON_KEYS[factor.reason ?? 'error'])}` : ''}</td>
+                        <td>{factor.source.startsWith('จำลอง (scenario:')
+                          ? factor.source
+                          : t(FACTOR_SOURCE_KEYS[factor.id])}{!factor.available ? ` · ${t(REASON_KEYS[factor.reason ?? 'error'])}` : ''}</td>
                         <td>{factor.observedAt ? formatClock(factor.observedAt, language) : t('noData')}{factor.isStale ? ` · ${t('staleData')}` : ''}</td>
                       </tr>
                     ))}

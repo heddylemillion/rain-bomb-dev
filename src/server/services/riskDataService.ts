@@ -2,16 +2,24 @@ import { calculateRisk, haversineDistanceKm, type RiskInput } from './riskServic
 import { classifyProbeError } from './capabilityService.js';
 import { XweatherClient, XweatherClientError } from './xweatherClient.js';
 import { logger, redactSecretsInText } from '../logger.js';
-import type { CapabilityReason, RiskResult } from '../../shared/contracts.js';
+import type { RiskDataReason, RiskResult } from '../../shared/contracts.js';
 import type {
   XweatherConditionEnvelope,
   XweatherForecastEnvelope,
   XweatherObservationEnvelope,
 } from '../schemas/xweather.schema.js';
+import {
+  createMockScenario,
+  getMockRiskInputs,
+  nearestApproachingCell,
+  scenarioLightningStrikes,
+  type MockScenarioName,
+} from '../../shared/mockWeatherScenario.js';
+import type { DataMode } from './environmentDataService.js';
 
 interface SourceResult<T> {
   value: T | null;
-  reason: CapabilityReason;
+  reason: RiskDataReason;
   observedAt: string | null;
   fetchedAt: string | null;
   stale: boolean;
@@ -19,7 +27,7 @@ interface SourceResult<T> {
 
 interface SourceCacheEntry {
   value: unknown | null;
-  reason: CapabilityReason;
+  reason: RiskDataReason;
   storedAt: number;
   expiresAt: number;
 }
@@ -47,7 +55,7 @@ function numeric(record: Record<string, unknown> | undefined, key: string): numb
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function errorReason(error: unknown): CapabilityReason {
+function errorReason(error: unknown): RiskDataReason {
   if (error instanceof XweatherClientError) return classifyProbeError(error);
   return 'error';
 }
@@ -131,15 +139,24 @@ function responseObservedAt(value: unknown): string | null {
 
 export class RiskDataService {
   private readonly client: XweatherClient;
+  private readonly dataMode: DataMode;
   private readonly sourceCache = new Map<string, SourceCacheEntry>();
-  private readonly failureCache = new Map<string, { reason: CapabilityReason; expiresAt: number }>();
+  private readonly failureCache = new Map<string, { reason: RiskDataReason; expiresAt: number }>();
   private readonly inFlight = new Map<string, Promise<SourceResult<unknown>>>();
 
-  constructor(client: XweatherClient) {
+  constructor(client: XweatherClient, dataMode: DataMode = 'live') {
     this.client = client;
+    this.dataMode = dataMode;
   }
 
-  public async getPointRisk(lat: number, lon: number): Promise<RiskResult> {
+  public async getPointRisk(
+    lat: number,
+    lon: number,
+    mockOptions: { scenario?: MockScenarioName; date?: string; offsetMin?: number } = {}
+  ): Promise<RiskResult> {
+    if (this.dataMode === 'mock') {
+      return this.getMockPointRisk(lat, lon, mockOptions);
+    }
     const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
     const [conditions, observations, forecast, archive, lightningSource, alerts] = await Promise.all([
       this.source(`conditions:${key}`, 5 * 60 * 1000, () => this.client.fetchConditions(lat, lon)),
@@ -246,6 +263,59 @@ export class RiskDataService {
         ...(sourceResult?.stale ? { source: `${factor.source} · ข้อมูลเก่า` } : {}),
       };
     });
+    return result;
+  }
+
+  private getMockPointRisk(
+    lat: number,
+    lon: number,
+    options: { scenario?: MockScenarioName; date?: string; offsetMin?: number }
+  ): RiskResult {
+    const scenarioName = options.scenario ?? 'moderate';
+    const date = options.date ?? new Date().toISOString().slice(0, 10);
+    const offsetMin = options.offsetMin ?? 0;
+    const scenario = createMockScenario(scenarioName, date);
+    const values = getMockRiskInputs(scenario, lat, lon, offsetMin);
+    const source = `จำลอง (scenario: ${scenarioName})`;
+    const observedAt = new Date(Date.now() + offsetMin * 60_000).toISOString();
+    const inputs: RiskInput[] = [
+      ['rainNowMmHr', values.rainNowMmHr],
+      ['peakRain3hMmHr', values.peakRain3hMmHr],
+      ['accum3hMm', values.accum3hMm],
+      ['accum24hMm', values.accum24hMm],
+      ['popMax3hPct', values.popMax3hPct],
+      ['lightning30minCount', values.lightning30minCount],
+      ['pressureDrop3hHpa', values.pressureDrop3hHpa],
+      ['humidityPct', values.humidityPct],
+    ].map(([id, rawValue]) => ({
+      id: id as RiskInput['id'],
+      rawValue: rawValue as number,
+      source,
+      observedAt,
+      reason: 'ok',
+    }));
+    const strikes = scenarioLightningStrikes(scenario, offsetMin).filter((strike) =>
+      offsetMin - strike.timeOffsetMin <= 30 &&
+      haversineDistanceKm(lat, lon, strike.lat, strike.lon) <= 20
+    );
+    const nearest = nearestApproachingCell(scenario, lat, lon, offsetMin);
+    const result = calculateRisk({
+      communityId: `point-${lat.toFixed(2)},${lon.toFixed(2)}`,
+      inputs,
+      lightningWithin5km15minCount: values.lightningWithin5km15minCount,
+      lightningSummary: {
+        count30min: values.lightning30minCount,
+        nearestStrikeKm: strikes.length
+          ? Math.min(...strikes.map((strike) =>
+            haversineDistanceKm(lat, lon, strike.lat, strike.lon)))
+          : null,
+      },
+      fetchedAt: observedAt,
+      isMock: true,
+    });
+    result.noticeTh = nearest
+      ? `ฝนกำลังเข้าใกล้ ประมาณ ${nearest.etaMin} นาที · ข้อมูลจำลองจาก scenario: ${scenarioName}`
+      : `ไม่มีฝนใกล้พื้นที่ · ข้อมูลจำลองจาก scenario: ${scenarioName}`;
     return result;
   }
 

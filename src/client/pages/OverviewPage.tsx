@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import type L from 'leaflet';
+import type { MockScenarioName } from '../../shared/mockWeatherScenario.js';
 import type {
   Community,
   GeocodingResult,
@@ -96,6 +97,12 @@ export function OverviewPage(): React.ReactNode {
   const [tabVisible, setTabVisible] = useState(() => document.visibilityState === 'visible');
   const [activeLayers, setActiveLayers] = useState<ReadonlySet<MapLayerId>>(() => new Set<MapLayerId>(['risk']));
   const [radarHours, setRadarHours] = useState(0);
+  const [timelineMinutes, setTimelineMinutes] = useState(0);
+  const [radarOpacity, setRadarOpacity] = useState(0.7);
+  const scenarioName: MockScenarioName = (['calm', 'moderate', 'burst'] as const).find(
+    (name) => name === searchParams.get('scenario')
+  ) ?? 'moderate';
+  const scenarioDate = new Date().toISOString().slice(0, 10);
   const [baseTilesFailed, setBaseTilesFailed] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
@@ -117,13 +124,18 @@ export function OverviewPage(): React.ReactNode {
     queryKey: ['capabilities'],
     queryFn: ({ signal }) => fetchCapabilities(signal),
   });
+  const mockMode = capabilityQuery.data?.isMock ?? false;
   const communitiesQuery = useQuery({
     queryKey: ['communities'],
     queryFn: ({ signal }) => fetchCommunities(signal),
   });
   const pointRiskQuery = useQuery({
-    queryKey: ['point-risk', place?.lat.toFixed(2), place?.lon.toFixed(2)],
-    queryFn: ({ signal }) => fetchPointRisk(place?.lat ?? 0, place?.lon ?? 0, signal),
+    queryKey: ['point-risk', place?.lat.toFixed(2), place?.lon.toFixed(2), scenarioName, scenarioDate, timelineMinutes],
+    queryFn: ({ signal }) => fetchPointRisk(place?.lat ?? 0, place?.lon ?? 0, signal, {
+      scenario: scenarioName,
+      date: scenarioDate,
+      offsetMin: timelineMinutes,
+    }),
     enabled: place !== null,
     retry: 1,
     refetchInterval: 5 * 60 * 1000,
@@ -156,8 +168,14 @@ export function OverviewPage(): React.ReactNode {
       available: id === 'risk' || capability?.available === true,
       reason: capability?.reason ?? 'error',
       updatedAt: capability?.checkedAt ?? null,
+      mock: capability?.mock === true,
     };
   });
+  useEffect(() => {
+    if (mockMode) {
+      setActiveLayers((current) => new Set([...current, 'radar', 'lightning', 'storm']));
+    }
+  }, [mockMode]);
   const availableLayers = new Set(layerAvailability.filter((item) => item.available).map((item) => item.id));
   const effectiveLayers = new Set([...activeLayers].filter((id) => availableLayers.has(id)));
   const overlays = new Set(
@@ -190,7 +208,13 @@ export function OverviewPage(): React.ReactNode {
       displayName: name,
     });
     setPlace(next);
-    setSearchParams({ lat: String(lat), lon: String(lon), name });
+    setSearchParams((current) => {
+      const nextParams = new URLSearchParams(current);
+      nextParams.set('lat', String(lat));
+      nextParams.set('lon', String(lon));
+      nextParams.set('name', name);
+      return nextParams;
+    });
   }, [setSearchParams, t]);
 
   const chooseGeocodedPlace = useCallback((result: GeocodingResult): void => {
@@ -210,7 +234,13 @@ export function OverviewPage(): React.ReactNode {
         const friendlyName = result.displayName || result.name;
         const resolved = { lat, lon, name: friendlyName };
         setPlace(resolved);
-        setSearchParams({ lat: String(lat), lon: String(lon), name: friendlyName });
+        setSearchParams((current) => {
+          const nextParams = new URLSearchParams(current);
+          nextParams.set('lat', String(lat));
+          nextParams.set('lon', String(lon));
+          nextParams.set('name', friendlyName);
+          return nextParams;
+        });
         rememberPlace(result);
       }
     } catch {
@@ -329,6 +359,11 @@ export function OverviewPage(): React.ReactNode {
         onMapPick={handleMapPick}
         overlays={overlays}
         radarHours={radarHours}
+        mockMode={mockMode}
+        scenarioName={scenarioName}
+        scenarioDate={scenarioDate}
+        simulationOffsetMin={timelineMinutes}
+        radarOpacity={radarOpacity}
         userPosition={place}
         onMapReady={(map) => { mapRef.current = map; }}
         onBaseTilesFailed={setBaseTilesFailed}
@@ -349,7 +384,20 @@ export function OverviewPage(): React.ReactNode {
             <button type="button" className="map-button" aria-label={t('myLocation')} title={t('myLocation')} onClick={locate} disabled={locating}>◎</button>
           </div>
         </div>
-        <LayerPanel layers={layerAvailability} active={effectiveLayers} onToggle={toggleLayer} defaultOpen={window.matchMedia('(min-width: 900px)').matches} />
+        <LayerPanel
+          layers={layerAvailability}
+          active={effectiveLayers}
+          onToggle={toggleLayer}
+          defaultOpen={window.matchMedia('(min-width: 900px)').matches}
+          mockMode={mockMode}
+          scenario={scenarioName}
+          mockOverlays={overlays}
+          onScenarioChange={(name) => setSearchParams((current) => {
+            const next = new URLSearchParams(current);
+            next.set('scenario', name);
+            return next;
+          })}
+        />
         <Legend defaultOpen={window.matchMedia('(min-width: 900px)').matches} />
         <div className="map-bottom">
           {(baseTilesFailed || capabilityQuery.isError || pointRiskQuery.isError || locationMessage) && (
@@ -367,7 +415,17 @@ export function OverviewPage(): React.ReactNode {
               {pointRiskQuery.isError && <p className="map-notice" role="alert">{t('pointRiskFailed')}</p>}
             </div>
           )}
-          {overlays.has('radar') && <RadarSlider hours={radarHours} onChange={setRadarHours} />}
+          {overlays.has('radar') && (
+            <RadarSlider
+              hours={radarHours}
+              onChange={setRadarHours}
+              mockMode={mockMode}
+              minutes={timelineMinutes}
+              onMinutesChange={setTimelineMinutes}
+              opacity={radarOpacity}
+              onOpacityChange={setRadarOpacity}
+            />
+          )}
           {!consentChoice && !place && (
             <section className="location-consent-banner" aria-label={t('locationConsent')}>
               <p>{t('locationConsent')}</p>

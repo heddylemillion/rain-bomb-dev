@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { ROOT_DIR } from '../config.js';
-import type { CapabilityReason, RiskFactorId, RiskResult } from '../../shared/contracts.js';
+import type { RiskDataReason, RiskFactorId, RiskResult } from '../../shared/contracts.js';
+
+export { haversineDistanceKm } from '../../shared/mockWeatherScenario.js';
 
 const RiskConfigSchema = z.object({
   calibrationStatus: z.literal('TO BE CALIBRATED'),
@@ -38,7 +40,7 @@ export interface RiskInput {
   rawValue: number | null;
   source: string;
   observedAt: string | null;
-  reason?: CapabilityReason;
+  reason?: RiskDataReason;
 }
 
 export interface CalculateRiskOptions {
@@ -124,20 +126,6 @@ const recommendations: Record<RiskResult['level'], Record<RiskResult['alertType'
     NONE: 'ข้อมูลยังไม่เพียงพอ โปรดติดตามประกาศจากหน่วยงานทางการ',
   },
 };
-
-export function haversineDistanceKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number {
-  const radians = (degrees: number): number => degrees * Math.PI / 180;
-  const dLat = radians(lat2 - lat1);
-  const dLon = radians(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 export function calculateRisk(options: CalculateRiskOptions): RiskResult {
   const inputs = new Map(options.inputs.map((input) => [input.id, input]));

@@ -20,7 +20,7 @@ describe('location search and arbitrary-point risk', () => {
       reverse: async () => { throw new Error('upstream unavailable'); },
     };
     const app = createApp({
-      config: loadConfig({ NODE_ENV: 'test' }),
+      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'live' }),
       geocodingProvider: failingProvider,
     });
 
