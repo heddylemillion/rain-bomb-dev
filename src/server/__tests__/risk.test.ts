@@ -36,6 +36,18 @@ describe('transparent risk calculations', () => {
     expect(result.missingFactors).toHaveLength(6);
   });
 
+  it('keeps tide data contextual at zero weight and excludes it from the risk result', () => {
+    const withoutTide = calculateRisk({ communityId: 'point-1', inputs: baseInputs() });
+    const withTide = calculateRisk({
+      communityId: 'point-1',
+      inputs: [...baseInputs(), sourceInput('tideFactor', 2)],
+    });
+
+    expect(withTide.score).toBe(withoutTide.score);
+    expect(withTide.confidence).toBe(withoutTide.confidence);
+    expect(withTide.factors.some((factor) => factor.id === 'tideFactor')).toBe(false);
+  });
+
   it.each([
     [35, 'MEDIUM'],
     [64, 'MEDIUM'],

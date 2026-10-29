@@ -18,12 +18,13 @@ const RiskConfigSchema = z.object({
         'lightning30minCount',
         'pressureDrop3hHpa',
         'humidityPct',
+        'tideFactor',
       ]),
       name: z.string(),
       unit: z.string(),
       lo: z.number(),
       hi: z.number(),
-      weight: z.number().positive(),
+      weight: z.number().nonnegative(),
     })
   ),
 });
@@ -140,7 +141,7 @@ export function haversineDistanceKm(
 
 export function calculateRisk(options: CalculateRiskOptions): RiskResult {
   const inputs = new Map(options.inputs.map((input) => [input.id, input]));
-  const factors = riskConfig.factors.map((config) => {
+  const factors = riskConfig.factors.filter((config) => config.weight > 0).map((config) => {
     const input = inputs.get(config.id);
     const rawValue = input?.rawValue ?? null;
     const available = rawValue !== null && Number.isFinite(rawValue);

@@ -1,0 +1,38 @@
+{
+  "points": [
+    {
+      "id": "upper-gulf-chao-phraya",
+      "name_th": "อ่าวไทยตอนบน ใกล้ปากแม่น้ำเจ้าพระยา",
+      "lat": 13.45,
+      "lon": 100.6
+    },
+    {
+      "id": "chonburi-coast",
+      "name_th": "อ่าวไทย ใกล้ชายฝั่งชลบุรี",
+      "lat": 13.2,
+      "lon": 100.55
+    },
+    {
+      "id": "pattaya-coast",
+      "name_th": "อ่าวไทย ใกล้ชายฝั่งพัทยา",
+      "lat": 12.9,
+      "lon": 100.75
+    },
+    {
+      "id": "sattahip-coast",
+      "name_th": "อ่าวไทย ใกล้สัตหีบ",
+      "lat": 12.5,
+      "lon": 100.5
+    }
+  ],
+  "communities": {
+    "khlong-luang": {
+      "referencePointId": "upper-gulf-chao-phraya",
+      "distanceKm": 68.4
+    },
+    "khlong-luang-pathum-thani": {
+      "referencePointId": "upper-gulf-chao-phraya",
+      "distanceKm": 68.4
+    }
+  }
+}

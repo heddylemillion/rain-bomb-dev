@@ -137,6 +137,7 @@ export const RiskFactorIdSchema = z.enum([
   'lightning30minCount',
   'pressureDrop3hHpa',
   'humidityPct',
+  'tideFactor',
 ]);
 export type RiskFactorId = z.infer<typeof RiskFactorIdSchema>;
 export const RiskFactorSchema = z.object({
@@ -201,6 +202,34 @@ export type GeocodingResult = z.infer<typeof GeocodingResultSchema>;
 
 export const PointRiskResponseSchema = RiskResultSchema;
 export type PointRiskResponse = z.infer<typeof PointRiskResponseSchema>;
+
+export const AreaEnvironmentSchema = z.object({
+  isMock: z.boolean(),
+  elevation: z.object({
+    valueM: z.number().nullable(),
+    messageTh: z.string().nullable(),
+  }),
+  seaLevel: z.object({
+    referencePoint: z.object({
+      id: z.string(),
+      nameTh: z.string(),
+      latitude: z.number(),
+      longitude: z.number(),
+      distanceKm: z.number(),
+    }),
+    datum: z.literal('global_mean_sea_level'),
+    model: z.literal('forecast'),
+    hourly: z.array(z.object({
+      timeISO: z.string(),
+      seaLevelHeightMslM: z.number().nullable(),
+      waveHeightM: z.number().nullable(),
+    })),
+    fetchedAtISO: z.string().nullable(),
+    messageTh: z.string().nullable(),
+  }),
+});
+
+export type AreaEnvironment = z.infer<typeof AreaEnvironmentSchema>;
 
 export const CurrentConditionsSchema = z.object({
   loc: z.object({ lat: z.number(), long: z.number() }),

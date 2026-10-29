@@ -23,6 +23,7 @@ import {
 } from '../services/overlayLayers.js';
 import type { CommunityWeatherBundle } from '../types/weather.js';
 import type { GeocodingProvider } from '../services/geocodingProvider.js';
+import type { EnvironmentDataService, DataMode } from '../services/environmentDataService.js';
 
 const CommunityIdParamSchema = z
   .string()
@@ -37,6 +38,8 @@ export interface ApiRouterDeps {
   hasXweatherCredentials: boolean;
   riskDataService: RiskDataService;
   demoMode: boolean;
+  dataMode: DataMode;
+  environmentDataService: EnvironmentDataService;
   geocodingProvider: GeocodingProvider;
 }
 
@@ -92,7 +95,32 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   };
 
   router.get('/runtime-config', (_req: Request, res: Response) => {
-    res.status(200).json({ demoMode: deps.demoMode });
+    res.status(200).json({ demoMode: deps.demoMode, dataMode: deps.dataMode });
+  });
+
+  router.get('/environment', async (req: Request, res: Response) => {
+    const parsedPoint = PointQuerySchema.safeParse(req.query);
+    const parsedCommunity = z.string().max(80).optional().safeParse(req.query['communityId']);
+    if (!parsedPoint.success || !parsedCommunity.success) {
+      res.status(400).json({
+        error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' },
+      });
+      return;
+    }
+    try {
+      const result = await deps.environmentDataService.getAreaEnvironment(
+        parsedPoint.data.lat,
+        parsedPoint.data.lon,
+        parsedCommunity.data
+      );
+      res.status(200).json(result);
+    } catch (error: unknown) {
+      const safeMessage = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.error({ error: safeMessage }, 'Failed to load area elevation and marine context');
+      res.status(503).json({
+        error: { code: 'ENVIRONMENT_UNAVAILABLE', messageTh: 'โหลดข้อมูลความสูงและพยากรณ์ระดับน้ำทะเลไม่สำเร็จ' },
+      });
+    }
   });
 
   router.get('/geocode', async (req: Request, res: Response) => {
@@ -298,6 +326,7 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       timezone: 'Asia/Bangkok',
       xweatherConfigured: deps.hasXweatherCredentials,
       demoMode: deps.demoMode,
+      dataMode: deps.dataMode,
       cache: cacheStats,
       disclaimerTh: DECISION_SUPPORT_DISCLAIMER_TH,
     });

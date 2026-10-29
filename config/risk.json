@@ -13,6 +13,7 @@
     { "id": "popMax3hPct", "name": "โอกาสฝนสูงสุดใน 3 ชั่วโมง", "unit": "%", "lo": 30, "hi": 90, "weight": 0.1 },
     { "id": "lightning30minCount", "name": "ฟ้าผ่าในรัศมี 20 กม. ช่วง 30 นาที", "unit": "ครั้ง", "lo": 0, "hi": 40, "weight": 0.15 },
     { "id": "pressureDrop3hHpa", "name": "ความกดอากาศลดลงใน 3 ชั่วโมง", "unit": "hPa", "lo": 1, "hi": 4, "weight": 0.1 },
-    { "id": "humidityPct", "name": "ความชื้นสัมพัทธ์ปัจจุบัน", "unit": "%", "lo": 70, "hi": 95, "weight": 0.05 }
+    { "id": "humidityPct", "name": "ความชื้นสัมพัทธ์ปัจจุบัน", "unit": "%", "lo": 70, "hi": 95, "weight": 0.05 },
+    { "id": "tideFactor", "name": "ระดับน้ำทะเลจากจุดอ้างอิง", "unit": "ม.", "lo": -1, "hi": 3, "weight": 0, "_comment": "context only until validated against observed data" }
   ]
 }

@@ -27,7 +27,10 @@ export function AppShell(): React.ReactNode {
     queryFn: async ({ signal }) => {
       const response = await fetch('/api/runtime-config', { signal });
       if (!response.ok) throw new Error(`Runtime configuration request failed: ${response.status}`);
-      return z.object({ demoMode: z.boolean() }).parse(await response.json());
+      return z.object({
+        demoMode: z.boolean(),
+        dataMode: z.enum(['live', 'mock', 'cache']),
+      }).parse(await response.json());
     },
     staleTime: 30 * 60 * 1000,
     refetchInterval: false,
@@ -102,7 +105,7 @@ export function AppShell(): React.ReactNode {
         </nav>
       </header>
 
-      {runtimeConfig.data?.demoMode && (
+      {(runtimeConfig.data?.demoMode || runtimeConfig.data?.dataMode === 'mock') && (
         <div className="demo-mode-banner" role="status" aria-live="polite">
           {t('demoModeBanner')}
         </div>
@@ -121,6 +124,7 @@ export function AppShell(): React.ReactNode {
       <footer className="site-footer">
         <p className="disclaimer">{isMapRoute ? t('decisionSupportShort') : t('decisionSupport')}</p>
         {!isMapRoute && <p className="disclaimer disclaimer-note">{t('footerCalibration')}</p>}
+        <p className="disclaimer disclaimer-note">{t('environmentAttribution')}</p>
         {isMapRoute && (
           <p className="disclaimer disclaimer-note">
             {t('locationPrivacy')} ·{' '}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Community, RiskResult } from '../../shared/contracts.js';
+import type { AreaEnvironment, Community, RiskResult } from '../../shared/contracts.js';
 import { useTranslation, type MessageKey } from '../i18n.js';
 import { LEVEL_KEYS, LEVEL_SYMBOL, formatClock } from '../lib/risk.js';
 
@@ -10,6 +10,10 @@ interface StatusCardProps {
   riskError: boolean;
   retryRisk: () => void;
   pointNotice?: string | null;
+  environment?: AreaEnvironment;
+  environmentLoading: boolean;
+  environmentError: boolean;
+  retryEnvironment: () => void;
 }
 
 const FACTOR_NAME_KEYS: Record<RiskResult['factors'][number]['id'], MessageKey> = {
@@ -21,6 +25,7 @@ const FACTOR_NAME_KEYS: Record<RiskResult['factors'][number]['id'], MessageKey> 
   lightning30minCount: 'factorLightning30m',
   pressureDrop3hHpa: 'factorPressureDrop3h',
   humidityPct: 'factorHumidity',
+  tideFactor: 'factorTide',
 };
 
 const FACTOR_SOURCE_KEYS: Record<RiskResult['factors'][number]['id'], MessageKey> = {
@@ -32,6 +37,7 @@ const FACTOR_SOURCE_KEYS: Record<RiskResult['factors'][number]['id'], MessageKey
   lightning30minCount: 'sourceLightning',
   pressureDrop3hHpa: 'sourceObservationsArchive',
   humidityPct: 'sourceConditionsObservations',
+  tideFactor: 'sourceMarine',
 };
 
 const REASON_KEYS: Record<'no_plan' | 'no_coverage' | 'error' | 'ok', MessageKey> = {
@@ -47,6 +53,84 @@ function formatNumber(value: number | null, maximumFractionDigits = 1): string {
     : new Intl.NumberFormat('th-TH', { maximumFractionDigits }).format(value);
 }
 
+function formatBangkokTime(value: string, language: 'th' | 'en'): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function SeaLevelChart({
+  values,
+  language,
+  label,
+}: {
+  values: AreaEnvironment['seaLevel']['hourly'];
+  language: 'th' | 'en';
+  label: string;
+}): React.ReactNode {
+  const valid = values.flatMap((item, index) =>
+    item.seaLevelHeightMslM === null
+      ? []
+      : [{ time: item.timeISO, value: item.seaLevelHeightMslM, index }]
+  );
+  if (valid.length < 2) return null;
+  const minimum = Math.min(...valid.map((item) => item.value));
+  const maximum = Math.max(...valid.map((item) => item.value));
+  const spread = Math.max(maximum - minimum, 0.1);
+  const points = valid.map((item) => {
+    const x = (item.index / Math.max(values.length - 1, 1)) * 300;
+    const y = 76 - ((item.value - minimum) / spread) * 64;
+    return { ...item, x, y };
+  });
+  const lineSegments: string[] = [];
+  let segment: string[] = [];
+  let sourceIndex = 0;
+  for (const item of values) {
+    if (item.seaLevelHeightMslM === null) {
+      if (segment.length > 1) lineSegments.push(segment.join(' '));
+      segment = [];
+      sourceIndex += 1;
+      continue;
+    }
+    const point = points.find((candidate) => candidate.index === sourceIndex);
+    if (point) segment.push(`${point.x.toFixed(1)},${point.y.toFixed(1)}`);
+    sourceIndex += 1;
+  }
+  if (segment.length > 1) lineSegments.push(segment.join(' '));
+  const detailItems = values.map((item) => (
+    <li key={item.timeISO}>
+      {formatBangkokTime(item.timeISO, language)}: {item.seaLevelHeightMslM === null
+        ? (language === 'th' ? 'ไม่มีข้อมูล' : 'No data')
+        : `${formatNumber(item.seaLevelHeightMslM)} ${language === 'th' ? 'ม.' : 'm'}`}
+    </li>
+  ));
+  return (
+    <figure className="sea-level-chart">
+      <svg viewBox="0 0 300 88" role="img" aria-label={label} preserveAspectRatio="none">
+        <line x1="0" y1="44" x2="300" y2="44" className="sea-level-chart-grid" />
+        {lineSegments.map((points, index) => (
+          <polyline key={index} points={points} className="sea-level-chart-line" />
+        ))}
+        {points.map((point) => (
+          <circle key={point.index} cx={point.x} cy={point.y} r="1.7" className="sea-level-chart-dot" />
+        ))}
+      </svg>
+      <figcaption>{formatBangkokTime(valid[0]!.time, language)} – {formatBangkokTime(valid.at(-1)!.time, language)}</figcaption>
+      <details className="sea-level-chart-data">
+        <summary>{language === 'th' ? 'ดูค่ารายชั่วโมง' : 'View hourly values'}</summary>
+        <ol>{detailItems}</ol>
+      </details>
+    </figure>
+  );
+}
+
 const speechSupported = (): boolean =>
   typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
 
@@ -57,6 +141,10 @@ export function StatusCard({
   riskError,
   retryRisk,
   pointNotice,
+  environment,
+  environmentLoading,
+  environmentError,
+  retryEnvironment,
 }: StatusCardProps): React.ReactNode {
   const { t, language } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -129,6 +217,56 @@ export function StatusCard({
       <div className="status-head">
         <h2 id="status-card-title" className="status-community">{name}</h2>
       </div>
+
+      <section className="environment-context" aria-labelledby="environment-context-title" aria-busy={environmentLoading}>
+        <h3 id="environment-context-title">{t('environmentContext')}</h3>
+        {environmentLoading && <p className="status-message">{t('environmentLoading')}</p>}
+        {environmentError && (
+          <div className="status-message" role="alert">
+            <p>{t('environmentLoadFailed')}</p>
+            <button type="button" className="action-button" onClick={retryEnvironment}>{t('retry')}</button>
+          </div>
+        )}
+        {environment && (
+          <>
+            <p>
+              {environment.elevation.valueM === null
+                ? t('noElevation')
+                : `${t('elevationEstimatePrefix')} ${formatNumber(environment.elevation.valueM)} ${t('elevationEstimateSuffix')}`}
+            </p>
+            {environment.elevation.messageTh && environment.elevation.valueM === null && (
+              <p className="status-updated">{environment.elevation.messageTh}</p>
+            )}
+            <div className="sea-level-context">
+              <h4>{t('seaLevelHeading')}</h4>
+              <p>{t('referencePoint')}: {environment.seaLevel.referencePoint.nameTh} · {formatNumber(environment.seaLevel.referencePoint.distanceKm)} {t('distanceUnit')}</p>
+              <p className="sea-level-warning">{t('seaLevelForecastLabel')}</p>
+              <p>{t('marineNotObserved')}</p>
+              <p>{t('marineDatumNotice')}</p>
+              <p>{t('marineAccuracyNotice')}</p>
+              <p>{t('marineNavigationNotice')}</p>
+              {environment.seaLevel.messageTh && (
+                <p className="status-updated" role="status">{t('noSeaLevelData')} · {environment.seaLevel.messageTh}</p>
+              )}
+              {environment.seaLevel.hourly.length > 0 && (
+                <>
+                  <p>{t('seaLevelChartHeading')}</p>
+                  <p>
+                    {t('seaLevelNow')} ({formatBangkokTime(environment.seaLevel.hourly[0]!.timeISO, language)}):
+                    {' '}{formatNumber(environment.seaLevel.hourly[0]!.seaLevelHeightMslM)} {t('meterUnit')}
+                  </p>
+                  <SeaLevelChart
+                    values={environment.seaLevel.hourly}
+                    language={language}
+                    label={t('seaLevelChartLabel')}
+                  />
+                </>
+              )}
+              <p className="sea-level-warning">{t('seaLevelAttribution')}</p>
+            </div>
+          </>
+        )}
+      </section>
 
       {riskLoading && <p className="status-message">{t('cardLoading')}</p>}
       {riskError && !risk && (
@@ -228,6 +366,7 @@ export function StatusCard({
                 </table>
               </div>
               <p className="detail-plain">{t('calibrationNotice')}</p>
+              <p className="detail-plain">{t('environmentAttribution')}</p>
             </details>
           </div>
         </>

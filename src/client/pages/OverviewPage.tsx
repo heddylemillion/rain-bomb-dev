@@ -2,10 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import type L from 'leaflet';
-import type { Community, GeocodingResult, OverlayLayerId, RiskResult } from '../../shared/contracts.js';
+import type {
+  Community,
+  GeocodingResult,
+  OverlayLayerId,
+  RiskResult,
+} from '../../shared/contracts.js';
 import { OVERLAY_CAPABILITY_ID, type CapabilityId } from '../../shared/contracts.js';
 import { fetchCapabilities } from '../api/capabilities.js';
-import { fetchCommunities, fetchPointRisk, reverseGeocode } from '../api/weather.js';
+import {
+  fetchAreaEnvironment,
+  fetchCommunities,
+  fetchPointRisk,
+  reverseGeocode,
+} from '../api/weather.js';
 import { LocationSearch } from '../components/LocationSearch.js';
 import { MapCanvas, type UserPosition } from '../components/MapCanvas.js';
 import {
@@ -83,6 +93,7 @@ export function OverviewPage(): React.ReactNode {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [place, setPlace] = useState<SelectedPlace | null>(() => initialPlace(searchParams));
+  const [tabVisible, setTabVisible] = useState(() => document.visibilityState === 'visible');
   const [activeLayers, setActiveLayers] = useState<ReadonlySet<MapLayerId>>(() => new Set<MapLayerId>(['risk']));
   const [radarHours, setRadarHours] = useState(0);
   const [baseTilesFailed, setBaseTilesFailed] = useState(false);
@@ -93,6 +104,14 @@ export function OverviewPage(): React.ReactNode {
   const [searchOpen, setSearchOpen] = useState(false);
   const mapRef = useRef<L.Map | null>(null);
   const initialLocationAttempt = useRef(false);
+
+  useEffect(() => {
+    const updateVisibility = (): void => {
+      setTabVisible(document.visibilityState === 'visible');
+    };
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, []);
 
   const capabilityQuery = useQuery({
     queryKey: ['capabilities'],
@@ -110,11 +129,21 @@ export function OverviewPage(): React.ReactNode {
     refetchInterval: 5 * 60 * 1000,
     refetchIntervalInBackground: false,
   });
-
   const selectedCommunity = useMemo(
     () => place ? makePointCommunity(place) : null,
     [place]
   );
+  const environmentQuery = useQuery({
+    queryKey: ['area-environment', place?.lat.toFixed(5), place?.lon.toFixed(5)],
+    queryFn: ({ signal }) =>
+      fetchAreaEnvironment(place?.lat ?? 0, place?.lon ?? 0, selectedCommunity?.id ?? '', signal),
+    enabled: place !== null && selectedCommunity !== null &&
+      activeLayers.has('risk') && tabVisible,
+    staleTime: 45 * 60 * 1000,
+    refetchInterval: () => tabVisible ? 45 * 60 * 1000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
   const capabilities = capabilityQuery.data?.capabilities;
   const getCapability = useCallback(
     (id: CapabilityId) => capabilities?.find((capability) => capability.id === id),
@@ -357,6 +386,10 @@ export function OverviewPage(): React.ReactNode {
               riskError={pointRiskQuery.isError}
               retryRisk={() => { void pointRiskQuery.refetch(); }}
               pointNotice={statusRisk?.noticeTh ?? null}
+              environment={environmentQuery.data}
+              environmentLoading={environmentQuery.isPending}
+              environmentError={environmentQuery.isError}
+              retryEnvironment={() => { void environmentQuery.refetch(); }}
             />
           )}
           {!showRisk && (

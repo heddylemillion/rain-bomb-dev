@@ -1,10 +1,17 @@
 import {
   CommunitySchema,
+  AreaEnvironmentSchema,
   GeocodingResultSchema,
   PointRiskResponseSchema,
   WeatherBundleSchema,
 } from '../../shared/contracts.js';
-import type { Community, GeocodingResult, PointRiskResponse, WeatherBundle } from '../../shared/contracts.js';
+import type {
+  AreaEnvironment,
+  Community,
+  GeocodingResult,
+  PointRiskResponse,
+  WeatherBundle,
+} from '../../shared/contracts.js';
 import { z } from 'zod';
 
 const CommunitiesResponseSchema = z.object({
@@ -60,4 +67,19 @@ export async function fetchPointRisk(
   const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
   const payload = await getJson(`/api/risk?${params}`, signal);
   return PointRiskResponseSchema.parse(payload);
+}
+
+export async function fetchAreaEnvironment(
+  lat: number,
+  lon: number,
+  communityId: string,
+  signal: AbortSignal
+): Promise<AreaEnvironment> {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lon: String(lon),
+    communityId,
+  });
+  const payload = await getJson(`/api/environment?${params}`, signal);
+  return AreaEnvironmentSchema.parse(payload);
 }

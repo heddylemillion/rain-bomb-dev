@@ -12,6 +12,7 @@ import type { GeocodingProvider } from './services/geocodingProvider.js';
 import { XweatherClient } from './services/xweatherClient.js';
 import type { CommunityWeatherBundle } from './types/weather.js';
 import { RiskDataService } from './services/riskDataService.js';
+import { EnvironmentDataService } from './services/environmentDataService.js';
 
 export interface CreateAppOptions {
   config?: AppConfig;
@@ -19,6 +20,7 @@ export interface CreateAppOptions {
   cacheStore?: WeatherCacheStore<CommunityWeatherBundle>;
   weatherService?: WeatherService;
   geocodingProvider?: GeocodingProvider;
+  environmentDataService?: EnvironmentDataService;
 }
 
 export function createApp(options: CreateAppOptions = {}): Express {
@@ -114,6 +116,12 @@ export function createApp(options: CreateAppOptions = {}): Express {
       hasXweatherCredentials: xweatherClient.hasCredentials(),
       riskDataService: new RiskDataService(xweatherClient),
       demoMode: cfg.demoMode,
+      dataMode: cfg.dataMode,
+      environmentDataService: options.environmentDataService ?? new EnvironmentDataService({
+        mode: cfg.dataMode,
+        apiKey: cfg.openMeteo.apiKey,
+        commercial: cfg.openMeteo.commercial,
+      }),
       geocodingProvider: options.geocodingProvider ?? new NominatimGeocodingProvider({
         baseUrl: cfg.geocoding.baseUrl,
         userAgent: cfg.geocoding.userAgent,
