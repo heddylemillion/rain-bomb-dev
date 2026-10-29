@@ -8,6 +8,34 @@ import { XweatherClient } from '../services/xweatherClient.js';
 describe('Xweather raster tile proxy', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it('serves the real OSM basemap in cache mode and rejects non-image tile responses', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Uint8Array([137, 80, 78, 71]), {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      })
+    );
+    const app = createApp({
+      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'cache' }),
+    });
+
+    const tile = await request(app).get('/api/map/tiles/6/49/30.png').expect(200);
+    expect(tile.headers['content-type']).toContain('image/png');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://tile.openstreetmap.org/6/49/30.png',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+
+    fetchMock.mockResolvedValueOnce(
+      new Response('<html>upstream error</html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      })
+    );
+    const invalidImage = await request(app).get('/api/map/tiles/6/49/31.png').expect(502);
+    expect(invalidImage.body.error.code).toBe('MAP_TILE_UNAVAILABLE');
+  });
+
   it('streams and briefly caches images without returning credentials', async () => {
     const clientId = 'private-test-client';
     const clientSecret = 'private-test-secret';

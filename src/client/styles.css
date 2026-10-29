@@ -711,6 +711,21 @@ button:disabled {
   inset: 0;
 }
 
+.map-overlay-error {
+  position: absolute;
+  z-index: 450;
+  top: 8px;
+  left: 50%;
+  max-width: min(420px, calc(100% - 16px));
+  transform: translateX(-50%);
+  border: 2px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  padding: 8px 12px;
+  box-shadow: var(--shadow);
+}
+
 .map-canvas .leaflet-fill,
 .leaflet-fill {
   width: 100%;
@@ -722,7 +737,7 @@ button:disabled {
 /* The floating UI sits above the map; only the controls themselves take pointer events. */
 .map-ui {
   position: absolute;
-  z-index: 500;
+  z-index: 680;
   inset: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -2501,7 +2516,7 @@ body {
   right: auto;
   bottom: 8px;
   left: 50%;
-  width: min(560px, calc(100vw - 32px));
+  width: min(540px, calc(100vw - 32px));
   margin: 0;
   transform: translateX(-50%);
   border: 1px solid var(--color-ink);
@@ -2538,7 +2553,7 @@ body {
   bottom: calc(var(--map-timeline-height) + 16px);
   width: min(clamp(300px, 28vw, 380px), calc(100vw - 16px));
   min-width: min(300px, calc(100vw - 16px));
-  max-height: 60dvh;
+  max-height: min(60dvh, calc(100dvh - var(--map-timeline-height) - 264px));
   overflow: auto;
   border-top-width: 3px;
   border-left-width: 1px;
@@ -2574,6 +2589,10 @@ body {
   .status-card-hint {
     bottom: calc(var(--map-timeline-height) + 16px);
     width: min(clamp(300px, 28vw, 380px), calc(100vw - 16px));
+  }
+
+  .status-card {
+    max-height: min(36dvh, calc(100dvh - var(--map-timeline-height) - 380px));
   }
 
   .layer-panel {
@@ -2631,7 +2650,7 @@ body {
   }
 
   .legend-panel {
-    top: 176px;
+    top: 164px;
     right: 8px;
     bottom: auto;
   }
@@ -2671,7 +2690,7 @@ body {
   }
 
   .map-controls {
-    top: 320px;
+    top: calc(50dvh + 20px);
     right: 8px;
   }
 
@@ -2679,5 +2698,7 @@ body {
     top: 8px;
     right: 8px;
     left: auto;
+    max-height: 60dvh;
+    overflow: auto;
   }
 }

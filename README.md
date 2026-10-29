@@ -26,10 +26,12 @@ responses are used as test fixtures.
 
 Open-Meteo providers are controlled on the backend by `DATA_MODE=mock|live|cache`
 (default `mock`). Mock mode returns deterministic, visibly simulated provider
-data and makes no requests to Open-Meteo, Xweather, OSM tile, or Nominatim
-hosts. The mock basemap is a plain local background; location search uses only
-configured pilot communities and reverse geocoding returns no result. Live mode
-queries providers, while cache mode never makes an upstream request. Elevation values are stored permanently
+data and makes no requests to Open-Meteo, Xweather, or Nominatim hosts. The
+OpenStreetMap basemap is real in every data mode and is fetched through the
+backend tile proxy; set `VITE_BASE_TILE_URL` to override its URL template.
+Location search in mock mode uses only configured pilot communities and reverse
+geocoding returns no result. Live mode queries providers, while cache mode never
+makes an upstream request for weather data. Elevation values are stored permanently
 in the ignored `data/elevation-cache.json` file by ~100 m coordinate cell;
 Marine forecasts are cached for 45 minutes in `data/marine-cache.json`. Missing,
 invalid, and failed values remain missing rather than being replaced with
@@ -115,10 +117,10 @@ negative hours, but the selected frames and actual frame timestamps have not
 been verified against this account. The radar UI is available only when the
 capability endpoint reports access.
 
-In live mode, the browser uses the backend tile proxy at `/api/tiles/*`;
-Xweather map credentials are added only by the server. OpenStreetMap and
-Xweather attributions are displayed for live maps. In mock mode the map is
-local-only and labels its synthetic weather layers as simulated.
+The browser uses the backend OSM tile proxy at `/api/map/tiles/*` in all data
+modes, with visible OpenStreetMap attribution. In live mode, Xweather map
+credentials are added only by the server and its map attribution is displayed.
+In mock mode, synthetic weather layers are labeled as simulated.
 
 ## Open-Meteo verification and attribution
 

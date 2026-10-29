@@ -104,6 +104,7 @@ export function OverviewPage(): React.ReactNode {
   ) ?? 'moderate';
   const scenarioDate = new Date().toISOString().slice(0, 10);
   const [baseTilesFailed, setBaseTilesFailed] = useState(false);
+  const [baseTileRetry, setBaseTileRetry] = useState(0);
   const [locating, setLocating] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
   const [consentChoice, setConsentChoice] = useState(() => readStorage(LOCATION_CHOICE_KEY) ?? '');
@@ -367,6 +368,7 @@ export function OverviewPage(): React.ReactNode {
         userPosition={place}
         onMapReady={(map) => { mapRef.current = map; }}
         onBaseTilesFailed={setBaseTilesFailed}
+        baseTileRetry={baseTileRetry}
       />
       <div className={`map-ui${searchOpen ? ' is-searching' : ''}`}>
         <LocationSearch
@@ -402,7 +404,21 @@ export function OverviewPage(): React.ReactNode {
         <div className="map-bottom">
           {(baseTilesFailed || capabilityQuery.isError || pointRiskQuery.isError || locationMessage) && (
             <div className="map-notices">
-              {baseTilesFailed && <p className="map-notice" role="alert">{t('mapTilesError')}</p>}
+              {baseTilesFailed && (
+                <p className="map-notice" role="alert">
+                  {t('mapTilesError')}{' '}
+                  <button
+                    type="button"
+                    className="inline-button"
+                    onClick={() => {
+                      setBaseTilesFailed(false);
+                      setBaseTileRetry((retry) => retry + 1);
+                    }}
+                  >
+                    {t('mapTilesRetry')}
+                  </button>
+                </p>
+              )}
               {capabilityQuery.isError && <p className="map-notice" role="status">{t('capabilityLoadWarning')}</p>}
               {locationMessage && (
                 <p className="map-notice" role="status">

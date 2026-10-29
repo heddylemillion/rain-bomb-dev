@@ -256,15 +256,6 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       });
       return;
     }
-    if (deps.dataMode === 'mock') {
-      res.status(200)
-        .set('Content-Type', 'image/png')
-        .set('Cache-Control', 'public, max-age=3600')
-        .set('X-Content-Type-Options', 'nosniff')
-        .send(transparentTile);
-      return;
-    }
-
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     try {
@@ -285,9 +276,17 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
         });
         return;
       }
+      const contentType = tileResponse.headers.get('content-type')?.split(';', 1)[0]?.trim();
+      if (!contentType?.startsWith('image/')) {
+        logger.warn({ contentType }, 'OpenStreetMap returned a non-image tile');
+        res.status(502).json({
+          error: { code: 'MAP_TILE_UNAVAILABLE', messageTh: 'โหลดแผนที่ไม่สำเร็จ' },
+        });
+        return;
+      }
       res
         .status(200)
-        .set('Content-Type', 'image/png')
+        .set('Content-Type', contentType)
         .set('Cache-Control', 'public, max-age=3600')
         .set('X-Content-Type-Options', 'nosniff')
         .send(Buffer.from(await tileResponse.arrayBuffer()));

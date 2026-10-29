@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Component, Fragment, useEffect, useMemo, useState } from 'react';
+import type { ErrorInfo, PropsWithChildren } from 'react';
 import L from 'leaflet';
 import {
   Circle,
@@ -51,6 +52,7 @@ interface MapCanvasProps {
   userPosition: UserPosition | null;
   onMapReady: (map: L.Map) => void;
   onBaseTilesFailed: (failed: boolean) => void;
+  baseTileRetry: number;
 }
 
 const CLUSTER_RADIUS_PX = 56;
@@ -68,6 +70,39 @@ const TILE_LAYER_CODE: Record<OverlayLayerId, string> = {
 const mockTileFrames = new Map<string, Map<string, HTMLCanvasElement>>();
 const RADAR_TILE_SIZE = 256;
 const RADAR_SAMPLE_SIZE = 64;
+const MAX_CACHED_RADAR_TILES = 48;
+
+function rememberRadarTile(
+  frameKey: string,
+  tileKey: string,
+  tile: HTMLCanvasElement
+): void {
+  const frame = mockTileFrames.get(frameKey);
+  if (!frame) return;
+  frame.delete(tileKey);
+  frame.set(tileKey, tile);
+  mockTileFrames.delete(frameKey);
+  mockTileFrames.set(frameKey, frame);
+
+  let tileCount = [...mockTileFrames.values()].reduce((total, cached) => total + cached.size, 0);
+  while (tileCount > MAX_CACHED_RADAR_TILES) {
+    const oldestFrame = mockTileFrames.entries().next().value;
+    if (!oldestFrame) break;
+    const oldestTileKey = oldestFrame[1].keys().next().value;
+    if (!oldestTileKey) {
+      mockTileFrames.delete(oldestFrame[0]);
+      continue;
+    }
+    oldestFrame[1].delete(oldestTileKey);
+    tileCount -= 1;
+    if (oldestFrame[1].size === 0) {
+      mockTileFrames.delete(oldestFrame[0]);
+    } else {
+      mockTileFrames.delete(oldestFrame[0]);
+      mockTileFrames.set(oldestFrame[0], oldestFrame[1]);
+    }
+  }
+}
 
 class MockRadarGridLayer extends L.GridLayer {
   private readonly scenario: MockScenario;
@@ -78,7 +113,7 @@ class MockRadarGridLayer extends L.GridLayer {
       tileSize: RADAR_TILE_SIZE,
       opacity,
       maxNativeZoom: 12,
-      maxZoom: 12,
+      maxZoom: 19,
       updateWhenIdle: true,
       keepBuffer: 1,
     });
@@ -113,6 +148,7 @@ class MockRadarGridLayer extends L.GridLayer {
     }
     if (cached) {
       context.drawImage(cached, 0, 0);
+      rememberRadarTile(frameKey, tileKey, cached);
       done(undefined, tile);
       return tile;
     }
@@ -150,7 +186,7 @@ class MockRadarGridLayer extends L.GridLayer {
     sampleContext.putImageData(pixels, 0, 0);
     context.imageSmoothingEnabled = true;
     context.drawImage(sample, 0, 0, RADAR_TILE_SIZE, RADAR_TILE_SIZE);
-    frame.set(tileKey, tile);
+    rememberRadarTile(frameKey, tileKey, tile);
     done(undefined, tile);
     return tile;
   }
@@ -165,7 +201,7 @@ function radarColor(intensity: number): [number, number, number, number] {
     [20, [225, 40, 45]],
     [40, [210, 45, 205]],
   ];
-  if (intensity < ramp[0]![0]) return [0, 0, 0, 0];
+  if (!Number.isFinite(intensity) || intensity < ramp[0]![0]) return [0, 0, 0, 0];
   for (let index = 1; index < ramp.length; index += 1) {
     const before = ramp[index - 1]!;
     const after = ramp[index]!;
@@ -180,6 +216,35 @@ function radarColor(intensity: number): [number, number, number, number] {
     }
   }
   return [210, 45, 205, 210];
+}
+
+interface MapOverlayErrorBoundaryProps extends PropsWithChildren {
+  fallback: string;
+}
+
+interface MapOverlayErrorBoundaryState {
+  hasError: boolean;
+}
+
+class MapOverlayErrorBoundary extends Component<
+  MapOverlayErrorBoundaryProps,
+  MapOverlayErrorBoundaryState
+> {
+  public state: MapOverlayErrorBoundaryState = { hasError: false };
+
+  public static getDerivedStateFromError(): MapOverlayErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  public componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('Map overlay failed to render', error, info.componentStack);
+  }
+
+  public render(): React.ReactNode {
+    return this.state.hasError
+      ? <div className="map-overlay-error" role="alert">{this.props.fallback}</div>
+      : this.props.children;
+  }
 }
 
 function MockRadarOverlay({
@@ -589,6 +654,7 @@ export function MapCanvas({
   userPosition,
   onMapReady,
   onBaseTilesFailed,
+  baseTileRetry,
 }: MapCanvasProps): React.ReactNode {
   const { t } = useTranslation();
   const reduceMotion = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
@@ -672,50 +738,59 @@ export function MapCanvas({
         fadeAnimation={!reduceMotion}
         markerZoomAnimation={!reduceMotion}
         minZoom={5}
-        maxZoom={18}
+        maxZoom={19}
       >
         <ExposeMap onMapReady={onMapReady} />
         <FollowSelection communities={communities} selectedCommunityId={selectedCommunityId} />
         <MapClickHandler onMapPick={onMapPick} />
         <TileLayer
-          url="/api/map/tiles/{z}/{x}/{y}.png"
-          maxZoom={18}
+          key={baseTileRetry}
+          url={import.meta.env.VITE_BASE_TILE_URL || '/api/map/tiles/{z}/{x}/{y}.png'}
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+          maxZoom={19}
           eventHandlers={{
             tileerror: () => onBaseTilesFailed(true),
-            tileload: () => onBaseTilesFailed(false),
           }}
         />
         {!mockMode && [...overlays].map((layer) => (
-          <TileLayer
-            key={`${layer}-${tileRefreshVersion[layer]}`}
-            url={`/api/tiles/${TILE_LAYER_CODE[layer]}/{z}/{x}/{y}/${layer === 'radar' ? rasterOffset(radarHours) : 'current'}.png`}
-            opacity={layer === 'radar' ? 0.75 : 0.9}
-            zIndex={OVERLAY_Z[layer]}
-            maxNativeZoom={12}
-            maxZoom={18}
-            errorTileUrl={BLANK_TILE}
-          />
+          <MapOverlayErrorBoundary key={layer} fallback={t('mapOverlayError')}>
+            <TileLayer
+              key={`${layer}-${tileRefreshVersion[layer]}`}
+              url={`/api/tiles/${TILE_LAYER_CODE[layer]}/{z}/{x}/{y}/${layer === 'radar' ? rasterOffset(radarHours) : 'current'}.png`}
+              opacity={layer === 'radar' ? 0.75 : 0.9}
+              zIndex={OVERLAY_Z[layer]}
+              maxNativeZoom={12}
+              maxZoom={19}
+              errorTileUrl={BLANK_TILE}
+            />
+          </MapOverlayErrorBoundary>
         ))}
         {mockMode && scenario && overlays.has('radar') && (
-          <MockRadarOverlay
-            scenario={scenario}
-            offsetMin={simulationOffsetMin}
-            opacity={radarOpacity}
-          />
+          <MapOverlayErrorBoundary fallback={t('mapOverlayError')}>
+            <MockRadarOverlay
+              scenario={scenario}
+              offsetMin={simulationOffsetMin}
+              opacity={radarOpacity}
+            />
+          </MapOverlayErrorBoundary>
         )}
         {mockMode && scenario && overlays.has('storm') && (
-          <MockStormLayer
-            scenario={scenario}
-            offsetMin={simulationOffsetMin}
-            selectedPoint={userPosition}
-          />
+          <MapOverlayErrorBoundary fallback={t('mapOverlayError')}>
+            <MockStormLayer
+              scenario={scenario}
+              offsetMin={simulationOffsetMin}
+              selectedPoint={userPosition}
+            />
+          </MapOverlayErrorBoundary>
         )}
         {mockMode && scenario && overlays.has('lightning') && (
-          <MockLightningLayer
-            scenario={scenario}
-            offsetMin={simulationOffsetMin}
-            selectedPoint={userPosition}
-          />
+          <MapOverlayErrorBoundary fallback={t('mapOverlayError')}>
+            <MockLightningLayer
+              scenario={scenario}
+              offsetMin={simulationOffsetMin}
+              selectedPoint={userPosition}
+            />
+          </MapOverlayErrorBoundary>
         )}
         {showRisk && (
           <RiskMarkers
