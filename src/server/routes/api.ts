@@ -41,6 +41,8 @@ export interface ApiRouterDeps {
   riskDataService: RiskDataService;
   demoMode: boolean;
   dataMode: DataMode;
+  /** Lets only /reverse-geocode reach the geocoder in mock mode; weather providers stay unreachable. */
+  allowGeocodingInMock?: boolean;
   environmentDataService: EnvironmentDataService;
   geocodingProvider: GeocodingProvider;
 }
@@ -197,7 +199,7 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
       return;
     }
-    if (deps.dataMode === 'mock') {
+    if (deps.dataMode === 'mock' && !deps.allowGeocodingInMock) {
       res.status(200).json({ result: null });
       return;
     }

@@ -197,6 +197,7 @@ export const GeocodingResultSchema = z.object({
   district: z.string(),
   province: z.string(),
   displayName: z.string(),
+  address: z.string().optional(),
 });
 export type GeocodingResult = z.infer<typeof GeocodingResultSchema>;
 

@@ -2702,3 +2702,328 @@ body {
     overflow: auto;
   }
 }
+
+/* ==========================================================================
+   Left side bar: hide/show, topic navigation, selected address
+   ========================================================================== */
+.map-home {
+  --side-w: 44px;
+}
+
+.map-home.side-open {
+  --side-w: 340px;
+}
+
+/* Floating controls shift right by the side bar width so nothing hides underneath. */
+.map-home > .map-ui {
+  left: var(--side-w);
+}
+
+.map-home > .map-ui .map-bottom {
+  left: var(--gap);
+}
+
+.side-bar {
+  position: absolute;
+  z-index: 700;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  width: 44px;
+  flex-direction: column;
+  border-right: var(--border-w) solid var(--color-ink);
+  background: var(--color-panel);
+  color: var(--color-ink);
+  box-shadow: var(--shadow);
+}
+
+.side-bar.is-open {
+  width: 340px;
+}
+
+.side-bar-toggle {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  right: 0;
+  display: inline-flex;
+  width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.side-bar-toggle:hover {
+  background: var(--color-canvas);
+}
+
+.side-bar-toggle:focus-visible,
+.side-topic:focus-visible {
+  outline: 3px solid var(--color-focus, var(--color-ink));
+  outline-offset: -3px;
+}
+
+.side-bar-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem 0.75rem;
+}
+
+.side-bar-body[hidden] {
+  display: none;
+}
+
+.side-bar-title {
+  min-height: 44px;
+  margin: 0;
+  padding-right: 44px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 44px;
+}
+
+.side-section {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.side-heading {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.side-address-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.side-note,
+.side-coordinates {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.side-topic-list {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.side-topic {
+  display: grid;
+  width: 100%;
+  min-height: 44px;
+  gap: 0.15rem;
+  border: var(--border-w) solid var(--color-border);
+  border-left-width: 0.3rem;
+  border-radius: var(--radius);
+  background: var(--color-panel);
+  color: var(--color-ink);
+  cursor: pointer;
+  padding: 0.4rem 0.6rem;
+  font: inherit;
+  text-align: left;
+}
+
+.side-topic.is-on {
+  border-color: var(--color-ink);
+  border-left-color: var(--color-accent);
+  background: var(--color-canvas);
+}
+
+.side-topic:disabled {
+  cursor: not-allowed;
+  opacity: 0.75;
+  border-style: dashed;
+}
+
+.side-topic-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.side-topic-label {
+  font-weight: 800;
+}
+
+.side-topic-status {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.side-topic.is-on .side-topic-status {
+  color: var(--color-ink);
+}
+
+.side-topic-desc {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+/* Risk card lives inside the side bar: flow layout, no bottom-sheet look. */
+.side-bar .status-card {
+  position: static;
+  max-height: none;
+  overflow: visible;
+  border-top-width: var(--border-w);
+  border-left-width: 0.5rem;
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.side-bar .status-high { border-left-color: var(--color-risk-high); }
+.side-bar .status-medium { border-left-color: var(--color-risk-medium); }
+.side-bar .status-low { border-left-color: var(--color-risk-low); }
+
+.side-bar .status-extra {
+  display: grid;
+  gap: 0.5rem;
+}
+
+:root[data-contrast='high'] .side-bar,
+:root[data-contrast='high'] .side-topic {
+  border-color: var(--color-ink);
+}
+
+:root[data-contrast='high'] .side-topic-desc,
+:root[data-contrast='high'] .side-topic-status,
+:root[data-contrast='high'] .side-note,
+:root[data-contrast='high'] .side-coordinates,
+:root[data-contrast='high'] .side-heading {
+  color: var(--color-ink);
+}
+
+/* Narrow screens: open panel overlays the map; controls keep clearing the 44px strip. */
+@media (max-width: 899.98px) {
+  .map-home.side-open {
+    --side-w: 44px;
+  }
+
+  .side-bar.is-open {
+    width: min(88vw, 340px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .side-bar,
+  .map-home > .map-ui {
+    transition: width 0.18s ease, left 0.18s ease;
+  }
+}
+
+/* ==========================================================================
+   Side bar v2: search inside the bar, wider panel, status card fit
+   ========================================================================== */
+.map-home {
+  --side-collapsed-w: 44px;
+  --side-w: clamp(420px, 36vw, 560px);
+}
+
+.map-home.side-open {
+  --side-w: clamp(420px, 36vw, 560px);
+}
+
+.side-bar {
+  width: var(--side-collapsed-w);
+}
+
+.side-bar.is-open {
+  width: var(--side-w);
+}
+
+/* .map-bottom is a child of .map-ui, so shifting .map-ui moves both (no double offset). */
+.map-home > .map-ui {
+  left: var(--side-collapsed-w);
+}
+
+.map-home.side-open > .map-ui {
+  left: var(--side-w);
+}
+
+.map-home > .map-ui .map-bottom {
+  left: 0;
+}
+
+.side-bar-body {
+  gap: 1rem;
+  padding: 0.5rem 1rem 1rem;
+}
+
+.side-bar-body[hidden] {
+  display: none;
+}
+
+.side-bar-search {
+  display: block;
+  min-width: 0;
+}
+
+.side-bar .location-search {
+  position: relative;
+  top: auto;
+  left: auto;
+  z-index: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.side-bar .location-results {
+  position: static;
+  max-height: min(45dvh, 380px);
+  margin-top: 4px;
+  box-shadow: none;
+}
+
+.side-bar .location-search-form input {
+  min-height: 44px;
+}
+
+.side-bar .status-card,
+.side-bar .status-card-hint {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  max-height: none;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 899px) {
+  .side-bar.is-open {
+    width: min(92vw, 440px);
+  }
+
+  .map-home.side-open > .map-ui {
+    left: var(--side-collapsed-w);
+  }
+}

@@ -26,6 +26,7 @@ import {
   type LayerAvailability,
   type MapLayerId,
 } from '../components/MapOverlays.js';
+import { SideBar, type SideTopic } from '../components/SideBar.js';
 import { StatusCard } from '../components/StatusCard.js';
 import { useTranslation } from '../i18n.js';
 import { readStorage, writeStorage } from '../lib/storage.js';
@@ -33,10 +34,14 @@ import { readStorage, writeStorage } from '../lib/storage.js';
 const LOCATION_CHOICE_KEY = 'rain-burst-location-choice';
 const THAILAND_BOUNDS = { minLat: 5.5, maxLat: 20.5, minLon: 97, maxLon: 106 };
 
+/** Stable no-op: the search box no longer hides map controls while open. */
+const ignoreSearchOpenChange = (): void => undefined;
+
 interface SelectedPlace {
   lat: number;
   lon: number;
   name: string;
+  address?: string | undefined;
 }
 
 function isInThailand(lat: number, lon: number): boolean {
@@ -109,9 +114,15 @@ export function OverviewPage(): React.ReactNode {
   const [locationMessage, setLocationMessage] = useState('');
   const [consentChoice, setConsentChoice] = useState(() => readStorage(LOCATION_CHOICE_KEY) ?? '');
   const [focusSearchRequest, setFocusSearchRequest] = useState(0);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [sideOpen, setSideOpen] = useState(() => window.matchMedia('(min-width: 900px)').matches);
   const mapRef = useRef<L.Map | null>(null);
   const initialLocationAttempt = useRef(false);
+  const reverseRequestId = useRef(0);
+  // The search box lives in the side bar, so it must be open before the input can take focus.
+  const focusSearch = useCallback((): void => {
+    setSideOpen(true);
+    setFocusSearchRequest((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     const updateVisibility = (): void => {
@@ -193,13 +204,13 @@ export function OverviewPage(): React.ReactNode {
     return map;
   }, [pointRiskQuery.data, selectedCommunity]);
 
-  const choosePoint = useCallback((lat: number, lon: number, name: string): void => {
+  const choosePoint = useCallback((lat: number, lon: number, name: string, address?: string): void => {
     if (!isInThailand(lat, lon)) {
       setLocationMessage(t('pointOutsideThailand'));
       return;
     }
     setLocationMessage('');
-    const next = { lat, lon, name };
+    const next: SelectedPlace = { lat, lon, name, address };
     rememberPlace({
       lat,
       lon,
@@ -220,7 +231,7 @@ export function OverviewPage(): React.ReactNode {
 
   const chooseGeocodedPlace = useCallback((result: GeocodingResult): void => {
     rememberPlace(result);
-    choosePoint(result.lat, result.lon, result.displayName || result.name);
+    choosePoint(result.lat, result.lon, result.displayName || result.name, result.address);
   }, [choosePoint]);
 
   const reverseAndChoose = useCallback(async (lat: number, lon: number, fallback: string): Promise<void> => {
@@ -228,12 +239,14 @@ export function OverviewPage(): React.ReactNode {
       setLocationMessage(t('pointOutsideThailand'));
       return;
     }
+    const requestId = ++reverseRequestId.current;
     choosePoint(lat, lon, fallback);
     try {
       const result = await reverseGeocode(lat, lon, new AbortController().signal);
-      if (result) {
+      // Ignore a stale answer if the user picked another point meanwhile.
+      if (result && requestId === reverseRequestId.current) {
         const friendlyName = result.displayName || result.name;
-        const resolved = { lat, lon, name: friendlyName };
+        const resolved: SelectedPlace = { lat, lon, name: friendlyName, address: result.address };
         setPlace(resolved);
         setSearchParams((current) => {
           const nextParams = new URLSearchParams(current);
@@ -252,12 +265,12 @@ export function OverviewPage(): React.ReactNode {
   const locate = useCallback((): void => {
     if (!window.isSecureContext && window.location.hostname !== 'localhost') {
       setLocationMessage(t('locationInsecure'));
-      setFocusSearchRequest((value) => value + 1);
+      focusSearch();
       return;
     }
     if (!('geolocation' in navigator)) {
       setLocationMessage(t('myLocationUnsupported'));
-      setFocusSearchRequest((value) => value + 1);
+      focusSearch();
       return;
     }
     setLocating(true);
@@ -275,14 +288,14 @@ export function OverviewPage(): React.ReactNode {
           setConsentChoice('denied');
           writeStorage(LOCATION_CHOICE_KEY, 'denied');
           setLocationMessage(t('locationDeniedHelp'));
-          setFocusSearchRequest((value) => value + 1);
+          focusSearch();
         } else {
           setLocationMessage(error.code === 3 ? t('locationTimeout') : t('locationFailed'));
         }
       },
       { enableHighAccuracy: false, timeout: 10_000, maximumAge: 5 * 60_000 }
     );
-  }, [reverseAndChoose, t]);
+  }, [focusSearch, reverseAndChoose, t]);
 
   useEffect(() => {
     if (initialLocationAttempt.current || place || consentChoice === 'denied' || consentChoice === 'chose-search') return;
@@ -299,7 +312,7 @@ export function OverviewPage(): React.ReactNode {
         setConsentChoice('denied');
         writeStorage(LOCATION_CHOICE_KEY, 'denied');
         setLocationMessage(t('locationDeniedHelp'));
-        setFocusSearchRequest((value) => value + 1);
+        focusSearch();
       } else if (permissionState === 'granted' || (!consentChoice && permissionState === 'prompt')) {
         timer = window.setTimeout(locate, permissionState === 'granted' ? 0 : 700);
       }
@@ -315,14 +328,14 @@ export function OverviewPage(): React.ReactNode {
       active = false;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [consentChoice, locate, place, t]);
+  }, [consentChoice, focusSearch, locate, place, t]);
 
   useEffect(() => {
     if (consentChoice === 'denied') {
       setLocationMessage(t('locationDeniedHelp'));
-      setFocusSearchRequest((value) => value + 1);
+      focusSearch();
     }
-  }, [consentChoice, t]);
+  }, [consentChoice, focusSearch, t]);
 
   const toggleLayer = useCallback((id: MapLayerId) => {
     setActiveLayers((current) => {
@@ -341,15 +354,26 @@ export function OverviewPage(): React.ReactNode {
     setConsentChoice('chose-search');
     writeStorage(LOCATION_CHOICE_KEY, 'chose-search');
     setLocationMessage('');
-    setFocusSearchRequest((value) => value + 1);
+    focusSearch();
   };
 
   const showRisk = effectiveLayers.has('risk');
   const locationPending = place !== null && pointRiskQuery.isPending;
   const statusRisk = pointRiskQuery.data;
+  const topicText: Record<MapLayerId, { label: string; description: string }> = {
+    risk: { label: t('layerRisk'), description: t('topicRiskDesc') },
+    radar: { label: t('layerRadar'), description: t('topicRadarDesc') },
+    lightning: { label: t('layerLightning'), description: t('topicLightningDesc') },
+    storm: { label: t('layerStorm'), description: t('topicStormDesc') },
+  };
+  const sideTopics: SideTopic[] = layerAvailability.map((item) => ({
+    id: item.id,
+    ...topicText[item.id],
+    state: !item.available ? 'unavailable' : effectiveLayers.has(item.id) ? 'on' : 'off',
+  }));
 
   return (
-    <div className={`map-home${overlays.has('radar') ? ' has-radar' : ''}`}>
+    <div className={`map-home${overlays.has('radar') ? ' has-radar' : ''}${sideOpen ? ' side-open' : ' side-closed'}`}>
       <h1 className="sr-only">{t('mapRegionLabel')}</h1>
       <MapCanvas
         communities={selectedCommunity ? [selectedCommunity] : []}
@@ -370,15 +394,7 @@ export function OverviewPage(): React.ReactNode {
         onBaseTilesFailed={setBaseTilesFailed}
         baseTileRetry={baseTileRetry}
       />
-      <div className={`map-ui${searchOpen ? ' is-searching' : ''}`}>
-        <LocationSearch
-          communities={communitiesQuery.data ?? []}
-          focusSearchRequest={focusSearchRequest}
-          locating={locating}
-          onOpenChange={setSearchOpen}
-          onLocate={locate}
-          onSelect={chooseGeocodedPlace}
-        />
+      <div className="map-ui">
         <div className="map-controls">
           <div className="map-controls-row">
             <button type="button" className="map-button" aria-label={t('zoomInAria')} title={t('zoomInAria')} onClick={() => mapRef.current?.zoomIn()}>+</button>
@@ -452,28 +468,46 @@ export function OverviewPage(): React.ReactNode {
               <small>{t('locationPrivacy')}</small>
             </section>
           )}
-          {selectedCommunity && showRisk && (
-            <StatusCard
-              community={selectedCommunity}
-              risk={statusRisk}
-              riskLoading={locationPending}
-              riskError={pointRiskQuery.isError}
-              retryRisk={() => { void pointRiskQuery.refetch(); }}
-              pointNotice={statusRisk?.noticeTh ?? null}
-              environment={environmentQuery.data}
-              environmentLoading={environmentQuery.isPending}
-              environmentError={environmentQuery.isError}
-              retryEnvironment={() => { void environmentQuery.refetch(); }}
-            />
-          )}
-          {!showRisk && (
-            <section className="status-card status-card-hint" aria-label={t('layerRisk')}>
-              <p className="status-message">{t('riskLayerOffHint')}</p>
-              <button type="button" className="action-button" onClick={() => toggleLayer('risk')}>{t('riskLayerTurnOn')}</button>
-            </section>
-          )}
         </div>
       </div>
+      <SideBar
+        open={sideOpen}
+        onToggle={() => setSideOpen((value) => !value)}
+        topics={sideTopics}
+        onToggleTopic={toggleLayer}
+        place={place}
+        search={(
+          <LocationSearch
+            communities={communitiesQuery.data ?? []}
+            focusSearchRequest={focusSearchRequest}
+            locating={locating}
+            onOpenChange={ignoreSearchOpenChange}
+            onLocate={locate}
+            onSelect={chooseGeocodedPlace}
+          />
+        )}
+      >
+        {selectedCommunity && showRisk && (
+          <StatusCard
+            community={selectedCommunity}
+            risk={statusRisk}
+            riskLoading={locationPending}
+            riskError={pointRiskQuery.isError}
+            retryRisk={() => { void pointRiskQuery.refetch(); }}
+            pointNotice={statusRisk?.noticeTh ?? null}
+            environment={environmentQuery.data}
+            environmentLoading={environmentQuery.isPending}
+            environmentError={environmentQuery.isError}
+            retryEnvironment={() => { void environmentQuery.refetch(); }}
+          />
+        )}
+        {!showRisk && (
+          <section className="status-card status-card-hint" aria-label={t('layerRisk')}>
+            <p className="status-message">{t('riskLayerOffHint')}</p>
+            <button type="button" className="action-button" onClick={() => toggleLayer('risk')}>{t('riskLayerTurnOn')}</button>
+          </section>
+        )}
+      </SideBar>
     </div>
   );
 }

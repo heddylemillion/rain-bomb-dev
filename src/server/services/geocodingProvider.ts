@@ -7,6 +7,8 @@ export interface GeocodingResult {
   district: string;
   province: string;
   displayName: string;
+  /** Full provider-supplied address (Nominatim display_name); never synthesized. */
+  address?: string;
 }
 
 export interface GeocodingProvider {
@@ -50,6 +52,7 @@ function toGeocodingResult(
     district,
     province,
     displayName: placeParts.join(' · ') || result.display_name,
+    ...(result.display_name.trim() ? { address: result.display_name.trim() } : {}),
   };
 }
 

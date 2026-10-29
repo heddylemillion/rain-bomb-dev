@@ -26,6 +26,7 @@ const EnvSchema = z.object({
   NOMINATIM_BASE_URL: z.string().url().default('https://nominatim.openstreetmap.org'),
   NOMINATIM_USER_AGENT: z.string().trim().min(1).default('RainBomb/0.1.0 (community weather dashboard)'),
   NOMINATIM_COUNTRYCODES: z.string().trim().default('th'),
+  GEOCODING_IN_MOCK: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   WEATHER_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   DATA_MODE: z.enum(['live', 'mock', 'cache']).default('mock'),
   OPEN_METEO_API_KEY: z.string().default(''),
@@ -59,6 +60,7 @@ export interface AppConfig {
     baseUrl: string;
     userAgent: string;
     countryCodes: string;
+    allowInMock: boolean;
   };
   cacheTtlSeconds: number;
   dataMode: 'live' | 'mock' | 'cache';
@@ -91,6 +93,7 @@ export function loadConfig(envInput: NodeJS.ProcessEnv = process.env): AppConfig
       baseUrl: parsed.NOMINATIM_BASE_URL.replace(/\/$/, ''),
       userAgent: parsed.NOMINATIM_USER_AGENT,
       countryCodes: parsed.NOMINATIM_COUNTRYCODES,
+      allowInMock: parsed.GEOCODING_IN_MOCK,
     },
     cacheTtlSeconds: parsed.WEATHER_CACHE_TTL_SECONDS,
     dataMode: parsed.DATA_MODE,
