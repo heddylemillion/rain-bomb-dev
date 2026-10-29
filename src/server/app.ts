@@ -11,6 +11,8 @@ import { NominatimGeocodingProvider } from './services/geocodingProvider.js';
 import type { GeocodingProvider } from './services/geocodingProvider.js';
 import { XweatherClient } from './services/xweatherClient.js';
 import type { CommunityWeatherBundle } from './types/weather.js';
+import { RiskDataService } from './services/riskDataService.js';
+import { EnvironmentDataService } from './services/environmentDataService.js';
 
 export interface CreateAppOptions {
   config?: AppConfig;
@@ -18,6 +20,7 @@ export interface CreateAppOptions {
   cacheStore?: WeatherCacheStore<CommunityWeatherBundle>;
   weatherService?: WeatherService;
   geocodingProvider?: GeocodingProvider;
+  environmentDataService?: EnvironmentDataService;
 }
 
 export function createApp(options: CreateAppOptions = {}): Express {
@@ -41,7 +44,6 @@ export function createApp(options: CreateAppOptions = {}): Express {
     new WeatherService({
       xweatherClient,
       cacheStore,
-      allowMockFallback: cfg.allowMockFallback,
     });
 
   const app = express();
@@ -87,13 +89,14 @@ export function createApp(options: CreateAppOptions = {}): Express {
     },
   });
   app.use('/api/map', mapTileLimiter);
+  app.use('/api/tiles', mapTileLimiter);
 
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 นาที
     limit: 120,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    skip: (req) => req.path.startsWith('/map/'),
+    skip: (req) => req.path.startsWith('/map/') || req.path.startsWith('/tiles/'),
     message: {
       error: {
         code: 'RATE_LIMIT_EXCEEDED',
@@ -111,6 +114,14 @@ export function createApp(options: CreateAppOptions = {}): Express {
       xweatherClient,
       cacheStore,
       hasXweatherCredentials: xweatherClient.hasCredentials(),
+      riskDataService: new RiskDataService(xweatherClient, cfg.dataMode),
+      demoMode: cfg.demoMode,
+      dataMode: cfg.dataMode,
+      environmentDataService: options.environmentDataService ?? new EnvironmentDataService({
+        mode: cfg.dataMode,
+        apiKey: cfg.openMeteo.apiKey,
+        commercial: cfg.openMeteo.commercial,
+      }),
       geocodingProvider: options.geocodingProvider ?? new NominatimGeocodingProvider({
         baseUrl: cfg.geocoding.baseUrl,
         userAgent: cfg.geocoding.userAgent,

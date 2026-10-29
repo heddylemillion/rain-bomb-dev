@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkXweatherCapabilities, getMockCapabilities } from '../services/capabilityService.js';
+import { checkXweatherCapabilities, getErrorCapabilities } from '../services/capabilityService.js';
 import { XweatherClient } from '../services/xweatherClient.js';
 import type { CommunityConfig } from '../types/weather.js';
 
@@ -9,23 +9,18 @@ const community: CommunityConfig = {
   name_en: 'Sample community',
   lat: 14.0647,
   lon: 100.6186,
-  elevation_m: 2.5,
-  soil_group: 'D',
-  drainage_capacity_mm_hr: 25,
-  canal_station_id: null,
-  calibration_status: 'TO BE CALIBRATED',
 };
 
 describe('Xweather capability checks', () => {
-  it('uses a visibly mocked capability response when credentials are unavailable', () => {
-    const result = getMockCapabilities('2026-10-26T16:00:00.000Z');
-    expect(result.isMock).toBe(true);
+  it('reports unverified capabilities as unavailable when credentials are not configured', () => {
+    const result = getErrorCapabilities('2026-10-26T16:00:00.000Z');
+    expect(result.isMock).toBe(false);
     expect(result.capabilities).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: 'risk-summary',
-          available: true,
-          reason: 'ok',
+          available: false,
+          reason: 'error',
           checkedAt: '2026-10-26T16:00:00.000Z',
         }),
       ])
@@ -96,6 +91,7 @@ describe('Xweather capability checks', () => {
         '/alerts/14.0647,100.6186',
         '/lightning/14.0647,100.6186',
         '/lightning/threats/14.0647,100.6186',
+        '/observations/archive/14.0647,100.6186',
       ])
     );
     expect(JSON.stringify(result)).not.toContain(clientId);

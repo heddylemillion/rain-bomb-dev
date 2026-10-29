@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { PointQuerySchema, GeocodeQuerySchema } from '../routes/api.js';
-import { calculatePointRisk } from '../services/riskService.js';
 import type { GeocodingProvider } from '../services/geocodingProvider.js';
 
 describe('location search and arbitrary-point risk', () => {
@@ -15,25 +14,13 @@ describe('location search and arbitrary-point risk', () => {
     expect(PointQuerySchema.safeParse({ lat: 'not-a-number', lon: '100' }).success).toBe(false);
   });
 
-  it('uses lower confidence and reports missing local traits for arbitrary points', () => {
-    const inputs = { forecastRain: 20, forecastProbability: 70, currentRainRate: null };
-    const arbitrary = calculatePointRisk(inputs, false);
-    const known = calculatePointRisk(inputs, true);
-
-    expect(arbitrary.confidence).toBe('LOW');
-    expect(known.confidence).toBe('MEDIUM');
-    expect(arbitrary.unavailableInputs).toContain('soil');
-    expect(arbitrary.unavailableInputs).toContain('current-rain-rate');
-    expect(known.unavailableInputs).not.toContain('soil');
-  });
-
-  it('returns a clear provider error and rejects out-of-country risk requests', async () => {
+  it('returns an insufficient-data response rather than a fabricated result when sources are unavailable', async () => {
     const failingProvider: GeocodingProvider = {
       search: async () => { throw new Error('upstream unavailable'); },
       reverse: async () => { throw new Error('upstream unavailable'); },
     };
     const app = createApp({
-      config: loadConfig({ NODE_ENV: 'test', ALLOW_MOCK_FALLBACK: 'false' }),
+      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'live' }),
       geocodingProvider: failingProvider,
     });
 
@@ -44,9 +31,14 @@ describe('location search and arbitrary-point risk', () => {
     expect(failedSearch.status).toBe(502);
     expect(failedSearch.body.error.messageTh).toContain('ค้นหาตำแหน่ง');
 
-    const weatherFailure = await request(app).get('/api/risk?lat=14.06&lon=100.62');
-    expect(weatherFailure.status).toBe(503);
-    expect(weatherFailure.body.error.code).toContain('XWEATHER_');
+    const riskResponse = await request(app).get('/api/risk?lat=14.06&lon=100.62');
+    expect(riskResponse.status).toBe(200);
+    expect(riskResponse.body).toMatchObject({
+      score: null,
+      level: 'INSUFFICIENT',
+      isMock: false,
+      fetchedAt: null,
+    });
   });
 
   it('passes the requested language to reverse geocoding', async () => {
@@ -56,7 +48,7 @@ describe('location search and arbitrary-point risk', () => {
       reverse,
     };
     const app = createApp({
-      config: loadConfig({ NODE_ENV: 'test' }),
+      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'live' }),
       geocodingProvider: provider,
     });
 

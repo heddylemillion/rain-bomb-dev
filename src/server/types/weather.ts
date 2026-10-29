@@ -12,11 +12,6 @@ export const CommunitySchema = z.object({
   name_en: z.string().min(1),
   lat: z.number().min(-90).max(90),
   lon: z.number().min(-180).max(180),
-  elevation_m: z.number(),
-  soil_group: HydrologicSoilGroupSchema,
-  drainage_capacity_mm_hr: z.number().positive(),
-  canal_station_id: z.string().nullable(),
-  calibration_status: z.string().default('TO BE CALIBRATED'),
 });
 
 export type CommunityConfig = z.infer<typeof CommunitySchema>;
@@ -38,8 +33,8 @@ export interface NormalizedHourlyForecastPoint {
   dewpointC: number | null;
   humidity: number | null;
   pressureMB: number | null;
-  pop: number;
-  precipMM: number;
+  pop: number | null;
+  precipMM: number | null;
   windSpeedKPH: number | null;
   windGustKPH: number | null;
   windDir: string | null;
@@ -47,7 +42,7 @@ export interface NormalizedHourlyForecastPoint {
   weather: string | null;
   weatherPrimaryCoded: string | null;
   icon: string | null;
-  isDay: boolean;
+  isDay: boolean | null;
 }
 
 export interface NormalizedDailyForecastPoint {
@@ -62,8 +57,8 @@ export interface NormalizedDailyForecastPoint {
   maxHumidity: number | null;
   minHumidity: number | null;
   pressureMB: number | null;
-  pop: number;
-  precipMM: number;
+  pop: number | null;
+  precipMM: number | null;
   windSpeedMaxKPH: number | null;
   windGustKPH: number | null;
   windDir: string | null;
@@ -122,7 +117,7 @@ export interface CommunityWeatherBundle {
     source: string;
     fetchedAtISO: string;
     timezone: string;
-    /** true เมื่อข้อมูลมาจาก mock/fallback จำลอง (ต้องแสดงป้าย "ข้อมูลจำลอง" ใน UI) */
+    /** True only when the explicit demo-mode configuration is enabled. */
     isMock: boolean;
     /** true เมื่อดึงข้อมูลสดจาก Xweather ไม่สำเร็จและใช้ข้อมูลจาก cache ล่าสุดแทน */
     isStale: boolean;

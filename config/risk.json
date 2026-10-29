@@ -1,8 +1,19 @@
 {
-  "_comment": "TO BE CALIBRATED — ยังไม่มีเกณฑ์หรือผลการสอบเทียบที่ยืนยัน ห้ามใช้คำนวณหรือแสดงคะแนนจริง",
-  "calibration_status": "TO BE CALIBRATED",
-  "score_range": null,
-  "risk_level_thresholds": null,
-  "alert_thresholds": null,
-  "contributing_factors": []
+  "_comment": "TO BE CALIBRATED — ค่าน้ำหนักและช่วง normalization เป็นค่าเริ่มต้นที่ยังไม่ได้สอบเทียบกับเหตุการณ์น้ำท่วมในไทย",
+  "calibrationStatus": "TO BE CALIBRATED",
+  "thresholds": {
+    "lowBelow": 35,
+    "mediumBelow": 65
+  },
+  "factors": [
+    { "id": "rainNowMmHr", "name": "อัตราฝนปัจจุบัน", "unit": "มม./ชม.", "lo": 2, "hi": 30, "weight": 0.1 },
+    { "id": "peakRain3hMmHr", "name": "ฝนรายชั่วโมงสูงสุดใน 3 ชั่วโมง", "unit": "มม./ชม.", "lo": 5, "hi": 50, "weight": 0.25 },
+    { "id": "accum3hMm", "name": "ฝนสะสมคาดการณ์ 3 ชั่วโมง", "unit": "มม.", "lo": 10, "hi": 100, "weight": 0.15 },
+    { "id": "accum24hMm", "name": "ฝนสะสมคาดการณ์ 24 ชั่วโมง", "unit": "มม.", "lo": 30, "hi": 150, "weight": 0.1 },
+    { "id": "popMax3hPct", "name": "โอกาสฝนสูงสุดใน 3 ชั่วโมง", "unit": "%", "lo": 30, "hi": 90, "weight": 0.1 },
+    { "id": "lightning30minCount", "name": "ฟ้าผ่าในรัศมี 20 กม. ช่วง 30 นาที", "unit": "ครั้ง", "lo": 0, "hi": 40, "weight": 0.15 },
+    { "id": "pressureDrop3hHpa", "name": "ความกดอากาศลดลงใน 3 ชั่วโมง", "unit": "hPa", "lo": 1, "hi": 4, "weight": 0.1 },
+    { "id": "humidityPct", "name": "ความชื้นสัมพัทธ์ปัจจุบัน", "unit": "%", "lo": 70, "hi": 95, "weight": 0.05 },
+    { "id": "tideFactor", "name": "ระดับน้ำทะเลจากจุดอ้างอิง", "unit": "ม.", "lo": -1, "hi": 3, "weight": 0, "_comment": "context only until validated against observed data" }
+  ]
 }

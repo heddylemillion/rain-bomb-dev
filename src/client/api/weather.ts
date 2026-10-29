@@ -1,11 +1,17 @@
 import {
   CommunitySchema,
+  AreaEnvironmentSchema,
   GeocodingResultSchema,
   PointRiskResponseSchema,
-  RiskResultSchema,
   WeatherBundleSchema,
 } from '../../shared/contracts.js';
-import type { Community, GeocodingResult, PointRiskResponse, RiskResult, WeatherBundle } from '../../shared/contracts.js';
+import type {
+  AreaEnvironment,
+  Community,
+  GeocodingResult,
+  PointRiskResponse,
+  WeatherBundle,
+} from '../../shared/contracts.js';
 import { z } from 'zod';
 
 const CommunitiesResponseSchema = z.object({
@@ -19,17 +25,6 @@ async function getJson(path: string, signal: AbortSignal): Promise<unknown> {
   }
   const payload: unknown = await response.json();
   return payload;
-}
-
-export async function fetchMockRiskResult(
-  communityId: string,
-  signal: AbortSignal
-): Promise<RiskResult> {
-  const payload = await getJson(
-    `/api/risk/${encodeURIComponent(communityId)}`,
-    signal
-  );
-  return RiskResultSchema.parse(payload);
 }
 
 export async function fetchCommunities(signal: AbortSignal): Promise<Community[]> {
@@ -72,9 +67,28 @@ export async function reverseGeocode(
 export async function fetchPointRisk(
   lat: number,
   lon: number,
-  signal: AbortSignal
+  signal: AbortSignal,
+  options: { scenario?: 'calm' | 'moderate' | 'burst'; date?: string; offsetMin?: number } = {}
 ): Promise<PointRiskResponse> {
   const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+  if (options.scenario) params.set('scenario', options.scenario);
+  if (options.date) params.set('date', options.date);
+  if (options.offsetMin !== undefined) params.set('offsetMin', String(options.offsetMin));
   const payload = await getJson(`/api/risk?${params}`, signal);
   return PointRiskResponseSchema.parse(payload);
+}
+
+export async function fetchAreaEnvironment(
+  lat: number,
+  lon: number,
+  communityId: string,
+  signal: AbortSignal
+): Promise<AreaEnvironment> {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lon: String(lon),
+    communityId,
+  });
+  const payload = await getJson(`/api/environment?${params}`, signal);
+  return AreaEnvironmentSchema.parse(payload);
 }

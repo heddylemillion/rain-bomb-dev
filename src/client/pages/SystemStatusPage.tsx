@@ -17,10 +17,8 @@ function formatTime(value: string, language: 'th' | 'en'): string {
 
 function CapabilityCard({
   capability,
-  isMock,
 }: {
   capability: Capability;
-  isMock: boolean;
 }): React.ReactNode {
   const { language, t } = useTranslation();
   const isStale = Date.now() - new Date(capability.checkedAt).getTime() > 15 * 60 * 1000;
@@ -29,6 +27,7 @@ function CapabilityCard({
     no_plan: 'reasonNoPlan',
     no_coverage: 'reasonNoCoverage',
     error: 'reasonError',
+    mock: 'reasonMock',
   } as const;
 
   return (
@@ -40,12 +39,9 @@ function CapabilityCard({
           {capability.available ? t('available') : t('unavailable')}
         </span>
       </div>
-      {capability.id === 'risk-summary' && (
-        <span className="mock-badge capability-mock-badge">{t('mockBadge')}</span>
-      )}
       <p className="capability-reason">{t(reasonKey[capability.reason])}</p>
       <div className="card-meta">
-        <span>{t('dataSource')}: {t(isMock ? 'capabilityMockSource' : 'capabilityApiSource')}</span>
+        <span>{t('dataSource')}: {t('capabilityApiSource')}</span>
         <span>{t('updatedAt')} {formatTime(capability.checkedAt, language)}</span>
         {isStale && <span className="stale-inline" role="status">{t('staleNotice')}</span>}
       </div>
@@ -115,12 +111,6 @@ export function SystemStatusPage(): React.ReactNode {
         <p>{t('statusDescription')}</p>
       </div>
 
-      {result.isMock && (
-        <div className="notice notice-mock" role="status">
-          <span className="mock-badge">{t('mockBadge')}</span>
-          <p>{t('mockNotice')}</p>
-        </div>
-      )}
       {stale && (
         <div className="notice notice-stale" role="status">
           <p>{t('staleNotice')}</p>
@@ -137,14 +127,13 @@ export function SystemStatusPage(): React.ReactNode {
             <CapabilityCard
               key={capability.id}
               capability={capability}
-              isMock={result.isMock}
             />
           ))}
         </div>
       )}
 
       <p className="source-note">
-        {t('dataSource')}: {result.isMock ? t('capabilityMockSource') : 'API'}
+        {t('dataSource')}: API
         {' · '}
         {t('updatedAt')} {formatTime(result.checkedAt, language)}
       </p>

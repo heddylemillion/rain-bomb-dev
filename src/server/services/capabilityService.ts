@@ -2,7 +2,9 @@ import type {
   CapabilitiesResponse,
   Capability,
   CapabilityId,
+  RiskDataReason,
 } from '../../shared/contracts.js';
+import { CAPABILITY_IDS } from '../../shared/contracts.js';
 import type { CommunityConfig } from '../types/weather.js';
 import { PROBE_TILE, XWEATHER_LAYER_CODE } from './overlayLayers.js';
 import { XweatherClient, XweatherClientError } from './xweatherClient.js';
@@ -35,7 +37,8 @@ const MOCK_STATUS_BY_ID: ReadonlyArray<{
 ];
 
 export function getMockCapabilities(
-  checkedAt = new Date().toISOString()
+  checkedAt = new Date().toISOString(),
+  demoMode = false
 ): CapabilitiesResponse {
   return {
     capabilities: MOCK_STATUS_BY_ID.map((status) => ({
@@ -44,14 +47,16 @@ export function getMockCapabilities(
     })),
     checkedAt,
     isMock: true,
+    demoMode,
   };
 }
 
 export function getErrorCapabilities(
-  checkedAt = new Date().toISOString()
+  checkedAt = new Date().toISOString(),
+  demoMode = false
 ): CapabilitiesResponse {
   return {
-    capabilities: MOCK_STATUS_BY_ID.map(({ id }) => ({
+    capabilities: CAPABILITY_IDS.map((id) => ({
       id,
       available: false,
       reason: 'error',
@@ -59,10 +64,11 @@ export function getErrorCapabilities(
     })),
     checkedAt,
     isMock: false,
+    demoMode,
   };
 }
 
-function classifyProbeError(error: unknown): Capability['reason'] {
+function classifyProbeError(error: unknown): RiskDataReason {
   if (!(error instanceof XweatherClientError)) {
     return 'error';
   }
@@ -77,6 +83,7 @@ function classifyProbeError(error: unknown): Capability['reason'] {
 
   return 'error';
 }
+export { classifyProbeError };
 
 function unavailable(reason: Capability['reason']): Capability {
   return {
@@ -147,7 +154,8 @@ async function checkRasterLayer(
 
 export async function checkXweatherCapabilities(
   client: XweatherClient,
-  community: CommunityConfig
+  community: CommunityConfig,
+  demoMode = false
 ): Promise<CapabilitiesResponse> {
   const checkedAt = new Date().toISOString();
   const location = `${community.lat},${community.lon}`;
@@ -160,6 +168,7 @@ export async function checkXweatherCapabilities(
       checkEndpoint(client, 'official-alerts', `/alerts/${location}`, checkedAt),
       checkEndpoint(client, 'lightning-strikes', `/lightning/${location}`, checkedAt),
       checkEndpoint(client, 'lightning-threats', `/lightning/threats/${location}`, checkedAt),
+      checkEndpoint(client, 'history-calibration', `/observations/archive/${location}`, checkedAt),
     ]),
     checkRasterLayer(client, 'radar-layer', 'radar', checkedAt),
     checkRasterLayer(client, 'lightning', 'lightning', checkedAt),
@@ -205,7 +214,7 @@ export async function checkXweatherCapabilities(
     },
     stormTile,
     { id: 'air-quality', available: false, reason: 'error', checkedAt },
-    { id: 'history-calibration', available: false, reason: 'error', checkedAt },
+    byId.get('history-calibration') ?? { id: 'history-calibration', available: false, reason: 'error', checkedAt },
     { id: 'alert-history', available: false, reason: 'error', checkedAt },
     radarTile,
     { id: 'satellite-layer', available: false, reason: 'error', checkedAt },
@@ -215,5 +224,5 @@ export async function checkXweatherCapabilities(
     { id: 'soil-condition', available: true, reason: 'ok', checkedAt },
   ];
 
-  return { capabilities, checkedAt, isMock: false };
+  return { capabilities, checkedAt, isMock: false, demoMode };
 }

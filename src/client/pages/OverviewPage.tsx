@@ -2,11 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import type L from 'leaflet';
-import type { Community, GeocodingResult, OverlayLayerId, RiskResult } from '../../shared/contracts.js';
+import type { MockScenarioName } from '../../shared/mockWeatherScenario.js';
+import type {
+  Community,
+  GeocodingResult,
+  OverlayLayerId,
+  RiskResult,
+} from '../../shared/contracts.js';
 import { OVERLAY_CAPABILITY_ID, type CapabilityId } from '../../shared/contracts.js';
 import { fetchCapabilities } from '../api/capabilities.js';
 import { fetchSoil, fetchSoilLayer } from '../api/soil.js';
-import { fetchCommunities, fetchPointRisk, reverseGeocode } from '../api/weather.js';
+import {
+  fetchAreaEnvironment,
+  fetchCommunities,
+  fetchPointRisk,
+  reverseGeocode,
+} from '../api/weather.js';
 import { LocationSearch } from '../components/LocationSearch.js';
 import { MapCanvas, type UserPosition } from '../components/MapCanvas.js';
 import {
@@ -54,12 +65,6 @@ function makePointCommunity(
     name_en: language === 'en' ? (placeHasThai ? selectedPointLabel : place.name) : place.name,
     lat: place.lat,
     lon: place.lon,
-    elevation_m: 0,
-    // Required by CommunitySchema only; this default is not an LDD soil classification.
-    soil_group: 'C',
-    drainage_capacity_mm_hr: 50,
-    canal_station_id: null,
-    calibration_status: 'DEFAULT TRAITS',
   };
 }
 
@@ -96,9 +101,17 @@ export function OverviewPage(): React.ReactNode {
   const { t, language } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [place, setPlace] = useState<SelectedPlace | null>(() => initialPlace(searchParams));
+  const [tabVisible, setTabVisible] = useState(() => document.visibilityState === 'visible');
   const [activeLayers, setActiveLayers] = useState<ReadonlySet<MapLayerId>>(() => new Set<MapLayerId>(['risk']));
   const [radarHours, setRadarHours] = useState(0);
+  const [timelineMinutes, setTimelineMinutes] = useState(0);
+  const [radarOpacity, setRadarOpacity] = useState(0.7);
+  const scenarioName: MockScenarioName = (['calm', 'moderate', 'burst'] as const).find(
+    (name) => name === searchParams.get('scenario')
+  ) ?? 'moderate';
+  const scenarioDate = new Date().toISOString().slice(0, 10);
   const [baseTilesFailed, setBaseTilesFailed] = useState(false);
+  const [baseTileRetry, setBaseTileRetry] = useState(0);
   const [locating, setLocating] = useState(false);
   const [locationMessage, setLocationMessage] = useState<MessageKey | null>(null);
   const [consentChoice, setConsentChoice] = useState(() => readStorage(LOCATION_CHOICE_KEY) ?? '');
@@ -108,25 +121,50 @@ export function OverviewPage(): React.ReactNode {
   const initialLocationAttempt = useRef(false);
   const resolvedLanguageLocation = useRef('');
 
+  useEffect(() => {
+    const updateVisibility = (): void => {
+      setTabVisible(document.visibilityState === 'visible');
+    };
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, []);
+
   const capabilityQuery = useQuery({
     queryKey: ['capabilities'],
     queryFn: ({ signal }) => fetchCapabilities(signal),
   });
+  const mockMode = capabilityQuery.data?.isMock ?? false;
   const communitiesQuery = useQuery({
     queryKey: ['communities'],
     queryFn: ({ signal }) => fetchCommunities(signal),
   });
   const pointRiskQuery = useQuery({
-    queryKey: ['point-risk', place?.lat.toFixed(2), place?.lon.toFixed(2)],
-    queryFn: ({ signal }) => fetchPointRisk(place?.lat ?? 0, place?.lon ?? 0, signal),
+    queryKey: ['point-risk', place?.lat.toFixed(2), place?.lon.toFixed(2), scenarioName, scenarioDate, timelineMinutes],
+    queryFn: ({ signal }) => fetchPointRisk(place?.lat ?? 0, place?.lon ?? 0, signal, {
+      scenario: scenarioName,
+      date: scenarioDate,
+      offsetMin: timelineMinutes,
+    }),
     enabled: place !== null,
     retry: 1,
+    refetchInterval: 5 * 60 * 1000,
+    refetchIntervalInBackground: false,
   });
-
   const selectedCommunity = useMemo(
     () => place ? makePointCommunity(place, language, t('selectedPoint')) : null,
     [language, place, t]
   );
+  const environmentQuery = useQuery({
+    queryKey: ['area-environment', place?.lat.toFixed(5), place?.lon.toFixed(5)],
+    queryFn: ({ signal }) =>
+      fetchAreaEnvironment(place?.lat ?? 0, place?.lon ?? 0, selectedCommunity?.id ?? '', signal),
+    enabled: place !== null && selectedCommunity !== null &&
+      activeLayers.has('risk') && tabVisible,
+    staleTime: 45 * 60 * 1000,
+    refetchInterval: () => tabVisible ? 45 * 60 * 1000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
   const capabilities = capabilityQuery.data?.capabilities;
   const getCapability = useCallback(
     (id: CapabilityId) => capabilities?.find((capability) => capability.id === id),
@@ -134,8 +172,19 @@ export function OverviewPage(): React.ReactNode {
   );
   const layerAvailability: LayerAvailability[] = (['risk', 'radar', 'lightning', 'storm', 'soil'] as const).map((id) => {
     const capability = getCapability(id === 'risk' ? 'risk-summary' : OVERLAY_CAPABILITY_ID[id as OverlayLayerId]);
-    return { id, available: id === 'risk' || id === 'soil' || capability?.available === true, reason: capability?.reason ?? 'error' };
+    return {
+      id,
+      available: id === 'risk' || id === 'soil' || capability?.available === true,
+      reason: capability?.reason ?? 'error',
+      updatedAt: capability?.checkedAt ?? null,
+      mock: capability?.mock === true,
+    };
   });
+  useEffect(() => {
+    if (mockMode) {
+      setActiveLayers((current) => new Set([...current, 'radar', 'lightning', 'storm']));
+    }
+  }, [mockMode]);
   const availableLayers = new Set(layerAvailability.filter((item) => item.available).map((item) => item.id));
   const effectiveLayers = new Set([...activeLayers].filter((id) => availableLayers.has(id)));
   const soilQuery = useQuery({
@@ -161,8 +210,11 @@ export function OverviewPage(): React.ReactNode {
   );
   const risks = useMemo(() => {
     const map = new Map<string, RiskResult>();
-    if (selectedCommunity && pointRiskQuery.data) {
-      map.set(selectedCommunity.id, pointRiskQuery.data);
+    const risk = pointRiskQuery.data;
+    if (selectedCommunity && risk && (
+      risk.level === 'HIGH' || risk.level === 'MEDIUM' || risk.level === 'LOW'
+    )) {
+      map.set(selectedCommunity.id, risk);
     }
     return map;
   }, [pointRiskQuery.data, selectedCommunity]);
@@ -183,7 +235,13 @@ export function OverviewPage(): React.ReactNode {
       displayName: name,
     });
     setPlace(next);
-    setSearchParams({ lat: String(lat), lon: String(lon), name });
+    setSearchParams((current) => {
+      const nextParams = new URLSearchParams(current);
+      nextParams.set('lat', String(lat));
+      nextParams.set('lon', String(lon));
+      nextParams.set('name', name);
+      return nextParams;
+    });
   }, [setSearchParams, t]);
 
   const chooseGeocodedPlace = useCallback((result: GeocodingResult): void => {
@@ -203,7 +261,13 @@ export function OverviewPage(): React.ReactNode {
         const friendlyName = result.displayName || result.name;
         const resolved = { lat, lon, name: friendlyName };
         setPlace(resolved);
-        setSearchParams({ lat: String(lat), lon: String(lon), name: friendlyName });
+        setSearchParams((current) => {
+          const nextParams = new URLSearchParams(current);
+          nextParams.set('lat', String(lat));
+          nextParams.set('lon', String(lon));
+          nextParams.set('name', friendlyName);
+          return nextParams;
+        });
         rememberPlace(result);
       }
     } catch {
@@ -343,7 +407,7 @@ export function OverviewPage(): React.ReactNode {
   const statusRisk = pointRiskQuery.data;
 
   return (
-    <div className="map-home">
+    <div className={`map-home${overlays.has('radar') ? ' has-radar' : ''}`}>
       <h1 className="sr-only">{t('mapRegionLabel')}</h1>
       <MapCanvas
         communities={selectedCommunity ? [selectedCommunity] : []}
@@ -356,9 +420,15 @@ export function OverviewPage(): React.ReactNode {
         soilLayer={soilLayerQuery.data ?? null}
         showSoilLayer={effectiveLayers.has('soil')}
         radarHours={radarHours}
+        mockMode={mockMode}
+        scenarioName={scenarioName}
+        scenarioDate={scenarioDate}
+        simulationOffsetMin={timelineMinutes}
+        radarOpacity={radarOpacity}
         userPosition={place}
         onMapReady={(map) => { mapRef.current = map; }}
         onBaseTilesFailed={setBaseTilesFailed}
+        baseTileRetry={baseTileRetry}
       />
       <div className={`map-ui${searchOpen ? ' is-searching' : ''}`}>
         <LocationSearch
@@ -376,7 +446,20 @@ export function OverviewPage(): React.ReactNode {
             <button type="button" className="map-button" aria-label={t('myLocation')} title={t('myLocation')} onClick={locate} disabled={locating}>◎</button>
           </div>
         </div>
-        <LayerPanel layers={layerAvailability} active={effectiveLayers} onToggle={toggleLayer} defaultOpen={window.matchMedia('(min-width: 900px)').matches} />
+        <LayerPanel
+          layers={layerAvailability}
+          active={effectiveLayers}
+          onToggle={toggleLayer}
+          defaultOpen={window.matchMedia('(min-width: 900px)').matches}
+          mockMode={mockMode}
+          scenario={scenarioName}
+          mockOverlays={overlays}
+          onScenarioChange={(name) => setSearchParams((current) => {
+            const next = new URLSearchParams(current);
+            next.set('scenario', name);
+            return next;
+          })}
+        />
         <Legend
           defaultOpen={window.matchMedia('(min-width: 900px)').matches}
           showSoil={effectiveLayers.has('soil')}
@@ -384,7 +467,21 @@ export function OverviewPage(): React.ReactNode {
         <div className="map-bottom">
           {(baseTilesFailed || capabilityQuery.isError || pointRiskQuery.isError || soilLayerQuery.isError || locationMessage) && (
             <div className="map-notices">
-              {baseTilesFailed && <p className="map-notice" role="alert">{t('mapTilesError')}</p>}
+              {baseTilesFailed && (
+                <p className="map-notice" role="alert">
+                  {t('mapTilesError')}{' '}
+                  <button
+                    type="button"
+                    className="inline-button"
+                    onClick={() => {
+                      setBaseTilesFailed(false);
+                      setBaseTileRetry((retry) => retry + 1);
+                    }}
+                  >
+                    {t('mapTilesRetry')}
+                  </button>
+                </p>
+              )}
               {capabilityQuery.isError && <p className="map-notice" role="status">{t('capabilityLoadWarning')}</p>}
               {locationMessage && (
                 <p className="map-notice" role="status">
@@ -398,7 +495,17 @@ export function OverviewPage(): React.ReactNode {
               {soilLayerQuery.isError && <p className="map-notice" role="alert">{t('soilLayerLoadError')}</p>}
             </div>
           )}
-          {overlays.has('radar') && <RadarSlider hours={radarHours} onChange={setRadarHours} />}
+          {overlays.has('radar') && (
+            <RadarSlider
+              hours={radarHours}
+              onChange={setRadarHours}
+              mockMode={mockMode}
+              minutes={timelineMinutes}
+              onMinutesChange={setTimelineMinutes}
+              opacity={radarOpacity}
+              onOpacityChange={setRadarOpacity}
+            />
+          )}
           {!consentChoice && !place && (
             <section className="location-consent-banner" aria-label={t('locationConsent')}>
               <p>{t('locationConsent')}</p>
@@ -416,14 +523,11 @@ export function OverviewPage(): React.ReactNode {
               riskLoading={locationPending}
               riskError={pointRiskQuery.isError}
               retryRisk={() => { void pointRiskQuery.refetch(); }}
-              weather={{
-                data: statusRisk?.weather,
-                loading: locationPending,
-                error: pointRiskQuery.isError,
-                retry: () => { void pointRiskQuery.refetch(); },
-              }}
-              isMock={statusRisk?.isMock ?? false}
-              pointNotice={statusRisk?.usesDefaultTraits || (place && !statusRisk) ? t('pointRiskNotice') : null}
+              pointNotice={statusRisk?.noticeTh ?? null}
+              environment={environmentQuery.data}
+              environmentLoading={environmentQuery.isPending}
+              environmentError={environmentQuery.isError}
+              retryEnvironment={() => { void environmentQuery.refetch(); }}
             />
           )}
           {selectedCommunity && effectiveLayers.has('soil') && (
