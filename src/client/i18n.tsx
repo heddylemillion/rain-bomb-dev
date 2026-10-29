@@ -14,7 +14,7 @@ export type MessageKey = keyof typeof messages.th;
 const messages = {
   th: {
     brandTitle: 'RAINBOMB',
-    brandSubtitle: 'เฝ้าระวังฝนและน้ำท่วม',
+    brandSubtitle: 'PREDICT THE RAIN PROTECT THE PEOPLE',
     overview: 'ภาพรวม',
     forecast: 'พยากรณ์',
     alerts: 'แจ้งเตือน',
