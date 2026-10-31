@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   CloudRain,
+  Layers,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -18,8 +19,10 @@ import { GlassTooltip, useAccessibleTooltip } from './GlassTooltip.js';
 
 export type SideTopicState = 'on' | 'off' | 'unavailable';
 
+export type SideLayerId = OverlayLayerId | 'soil';
+
 export interface SideLayerItem {
-  id: OverlayLayerId;
+  id: SideLayerId;
   label: string;
   description: string;
   state: SideTopicState;
@@ -28,10 +31,11 @@ export interface SideLayerItem {
 
 const SIDEBAR_STORAGE_KEY = 'rain-burst-sidebar-expanded';
 
-const LAYER_ICONS: Record<OverlayLayerId, LucideIcon> = {
+const LAYER_ICONS: Record<SideLayerId, LucideIcon> = {
   radar: CloudRain,
   lightning: Zap,
   storm: Tornado,
+  soil: Layers,
 };
 
 function readInitialExpanded(): boolean {
@@ -55,7 +59,7 @@ function SidebarLayerButton({
 }: {
   item: SideLayerItem;
   expanded: boolean;
-  onToggle: (id: OverlayLayerId) => void;
+  onToggle: (id: SideLayerId) => void;
 }): React.ReactNode {
   const { t } = useTranslation();
   const Icon = LAYER_ICONS[item.id];
@@ -140,7 +144,7 @@ export function SideBar({
   onOpenMenu,
 }: {
   layers: SideLayerItem[];
-  onToggleLayer: (id: OverlayLayerId) => void;
+  onToggleLayer: (id: SideLayerId) => void;
   mockMode: boolean;
   scenario: MockScenarioName;
   onScenarioChange: (scenario: MockScenarioName) => void;

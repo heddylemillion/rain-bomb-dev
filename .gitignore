@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .env.local
-data/
+data/*
+!data/soil-pathumthani.geojson
 *.log
 .DS_Store

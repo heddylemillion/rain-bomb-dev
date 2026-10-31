@@ -15,6 +15,7 @@ import type { XweatherClient } from '../services/xweatherClient.js';
 import { RiskDataService } from '../services/riskDataService.js';
 import type { WeatherService } from '../services/weatherService.js';
 import { XweatherClientError } from '../services/xweatherClient.js';
+import { getSoilLayer, lookupSoil } from '../services/soilService.js';
 import type { CapabilitiesResponse } from '../../shared/contracts.js';
 import { CAPABILITY_IDS } from '../../shared/contracts.js';
 import type { MockScenarioName } from '../../shared/mockWeatherScenario.js';
@@ -236,6 +237,26 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       logger.error({ error: safeMessage }, 'Failed to calculate point risk');
       res.status(503).json({ error: { code: 'RISK_UNAVAILABLE', messageTh: 'คำนวณข้อมูลความเสี่ยงไม่สำเร็จ กรุณาลองอีกครั้ง' } });
     }
+  });
+
+  router.get('/soil', (req: Request, res: Response) => {
+    const parsed = PointQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' },
+      });
+      return;
+    }
+    res.status(200).json({
+      soil: lookupSoil(parsed.data.lat, parsed.data.lon),
+      source: 'LDD 1:25,000',
+      coverage: 'pathum-thani',
+    });
+  });
+
+  router.get('/soil/layer', (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.status(200).json(getSoilLayer());
   });
 
   /** GET /api/capabilities reports provider access separately from verified geographic coverage. */

@@ -10,9 +10,10 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { AreaEnvironment, Community, RiskResult } from '../../shared/contracts.js';
+import type { AreaEnvironment, Community, RiskResult, SoilResponse } from '../../shared/contracts.js';
 import { useTranslation, type MessageKey } from '../i18n.js';
 import { LEVEL_KEYS, LEVEL_SYMBOL, formatClock } from '../lib/risk.js';
+import { translateSoilName, translateSoilValue } from '../lib/soilLocalization.js';
 
 interface StatusCardProps {
   community: Community;
@@ -26,6 +27,14 @@ interface StatusCardProps {
   environmentLoading: boolean;
   environmentError: boolean;
   retryEnvironment: () => void;
+  soilEnabled: boolean;
+  soil?: SoilResponse;
+  soilLoading: boolean;
+  soilError: boolean;
+  retrySoil: () => void;
+  soilLayerLoading: boolean;
+  soilLayerError: boolean;
+  retrySoilLayer: () => void;
 }
 
 const FACTOR_NAME_KEYS: Record<RiskResult['factors'][number]['id'], MessageKey> = {
@@ -196,6 +205,14 @@ export function StatusCard({
   environmentLoading,
   environmentError,
   retryEnvironment,
+  soilEnabled,
+  soil,
+  soilLoading,
+  soilError,
+  retrySoil,
+  soilLayerLoading,
+  soilLayerError,
+  retrySoilLayer,
 }: StatusCardProps): React.ReactNode {
   const { t, language } = useTranslation();
   const [collapsed, setCollapsed] = useState<boolean>(() =>
@@ -514,6 +531,65 @@ export function StatusCard({
               </div>
             </details>
           </>
+        )}
+
+        {soilEnabled && (
+          <details className="glass-subcard rounded-xl px-3 py-1" aria-busy={soilLoading}>
+              <summary className="min-h-[44px] cursor-pointer flex items-center justify-between text-xs font-semibold text-slate-100 select-none">
+                <span>{t('soilInfoTitle')}</span>
+              </summary>
+              <div className="pb-2.5 pt-1 flex flex-col gap-1.5 text-[0.7rem] text-slate-200 border-t border-white/10">
+                {soilLoading && <p>{t('soilLoading')}</p>}
+                {soilLayerLoading && <p>{t('soilLayerLoading')}</p>}
+                {soilError && (
+                  <div role="alert" className="flex flex-col gap-1.5">
+                    <p>{t('soilLoadError')}</p>
+                    <button
+                      type="button"
+                      className="glass-control-btn min-h-[44px] rounded-xl px-3 text-xs font-semibold"
+                      onClick={retrySoil}
+                    >
+                      {t('retry')}
+                    </button>
+                  </div>
+                )}
+                {soilLayerError && (
+                  <div role="alert" className="flex flex-col gap-1.5">
+                    <p>{t('soilLayerLoadError')}</p>
+                    <button
+                      type="button"
+                      className="glass-control-btn min-h-[44px] rounded-xl px-3 text-xs font-semibold"
+                      onClick={retrySoilLayer}
+                    >
+                      {t('retry')}
+                    </button>
+                  </div>
+                )}
+                {soil?.soil ? (
+                  <>
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1">
+                      <dt>{t('soilType')}</dt>
+                      <dd>{translateSoilName(soil.soil, language, t)} ({soil.soil.soilCode})</dd>
+                      <dt>{t('soilTexture')}</dt>
+                      <dd>{translateSoilValue(soil.soil.textureTh, language, t)}</dd>
+                      <dt>{t('soilPh')}</dt>
+                      <dd>{translateSoilValue(soil.soil.phTopTh, language, t)}</dd>
+                      <dt>{t('soilFertility')}</dt>
+                      <dd>{translateSoilValue(soil.soil.fertilityTh, language, t)}</dd>
+                      <dt>{t('soilAmphoe')}</dt>
+                      <dd>{translateSoilValue(soil.soil.amphoeTh, language, t)}</dd>
+                      <dt>{t('soilDrainage')}</dt>
+                      <dd>{translateSoilValue(soil.soil.drainageClass ?? '', language, t)}</dd>
+                      <dt>{t('soilSource')}</dt>
+                      <dd>{t('soilSourceName')} · 1:25,000</dd>
+                    </dl>
+                    <p>{t('soilResolutionNotice')}</p>
+                  </>
+                ) : soil ? (
+                  <p>{t('soilOutOfCoverage')}</p>
+                ) : null}
+              </div>
+          </details>
         )}
 
         <details className="glass-subcard rounded-xl px-3 py-1" aria-busy={environmentLoading}>

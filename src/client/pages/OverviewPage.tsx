@@ -15,8 +15,10 @@ import {
   type GeocodingResult,
   type OverlayLayerId,
   type RiskResult,
+  type SoilResponse,
 } from '../../shared/contracts.js';
 import { fetchCapabilities } from '../api/capabilities.js';
+import { fetchSoil, fetchSoilLayer } from '../api/soil.js';
 import {
   fetchAreaEnvironment,
   fetchCommunities,
@@ -27,7 +29,7 @@ import { DisplayPopover } from '../components/DisplayPopover.js';
 import { LocationSearch } from '../components/LocationSearch.js';
 import { MapCanvas, type UserPosition } from '../components/MapCanvas.js';
 import { MapControls, RadarSlider } from '../components/MapOverlays.js';
-import { SideBar, type SideLayerItem } from '../components/SideBar.js';
+import { SideBar, type SideLayerId, type SideLayerItem } from '../components/SideBar.js';
 import { StatusCard } from '../components/StatusCard.js';
 import { useTranslation } from '../i18n.js';
 import { writeStorage } from '../lib/storage.js';
@@ -138,8 +140,8 @@ export function OverviewPage({
     typeof window !== 'undefined' ? !window.matchMedia('(min-width: 768px)').matches : false
   );
   const [tabVisible, setTabVisible] = useState(() => document.visibilityState === 'visible');
-  const [activeOverlays, setActiveOverlays] = useState<ReadonlySet<OverlayLayerId>>(
-    () => new Set<OverlayLayerId>(['radar', 'lightning', 'storm'])
+  const [activeOverlays, setActiveOverlays] = useState<ReadonlySet<SideLayerId>>(
+    () => new Set<SideLayerId>(['radar', 'lightning', 'storm', 'soil'])
   );
   const [radarHours, setRadarHours] = useState(0);
   const [timelineMinutes, setTimelineMinutes] = useState(0);
@@ -234,6 +236,20 @@ export function OverviewPage({
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
+  const soilQuery = useQuery<SoilResponse>({
+    queryKey: ['soil', place.lat, place.lon],
+    queryFn: ({ signal }) => fetchSoil(place.lat, place.lon, signal),
+    enabled: activeOverlays.has('soil'),
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
+  const soilLayerQuery = useQuery({
+    queryKey: ['soil-layer'],
+    queryFn: ({ signal }) => fetchSoilLayer(signal),
+    enabled: activeOverlays.has('soil'),
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
 
   const capabilities = capabilityQuery.data?.capabilities;
   const getCapability = useCallback(
@@ -241,35 +257,52 @@ export function OverviewPage({
     [capabilities]
   );
 
-  const sideLayers: SideLayerItem[] = OVERLAY_LAYER_IDS.map((id) => {
-    const capability = getCapability(OVERLAY_CAPABILITY_ID[id]);
-    const available = capability ? capability.available : mockMode;
-    const label =
-      id === 'radar'
-        ? t('layerRadar')
-        : id === 'lightning'
-          ? t('layerLightning')
-          : t('layerStormTrack');
-    const description =
-      id === 'radar'
-        ? t('topicRadarDesc')
-        : id === 'lightning'
-          ? t('topicLightningDesc')
-          : t('topicStormDesc');
-    return {
-      id,
-      label,
-      description,
-      state: !available ? 'unavailable' : activeOverlays.has(id) ? 'on' : 'off',
-      mock: mockMode || capability?.mock === true,
-    };
-  });
+  const sideLayers: SideLayerItem[] = [
+    ...OVERLAY_LAYER_IDS.map((id) => {
+      const capability = getCapability(OVERLAY_CAPABILITY_ID[id]);
+      const available = capability ? capability.available : mockMode;
+      const label =
+        id === 'radar'
+          ? t('layerRadar')
+          : id === 'lightning'
+            ? t('layerLightning')
+            : t('layerStormTrack');
+      const description =
+        id === 'radar'
+          ? t('topicRadarDesc')
+          : id === 'lightning'
+            ? t('topicLightningDesc')
+            : t('topicStormDesc');
+      const state: SideLayerItem['state'] = !available
+        ? 'unavailable'
+        : activeOverlays.has(id)
+          ? 'on'
+          : 'off';
+      return {
+        id,
+        label,
+        description,
+        state,
+        mock: mockMode || capability?.mock === true,
+      };
+    }),
+    {
+      id: 'soil',
+      label: t('layerSoil'),
+      description: t('topicSoilDesc'),
+      state: activeOverlays.has('soil') ? ('on' as const) : ('off' as const),
+    },
+  ];
 
   const effectiveOverlays = useMemo(() => {
     const availableSet = new Set(
       sideLayers.filter((item) => item.state !== 'unavailable').map((item) => item.id)
     );
-    return new Set([...activeOverlays].filter((id) => availableSet.has(id)));
+    return new Set(
+      [...activeOverlays].filter(
+        (id): id is OverlayLayerId => id !== 'soil' && availableSet.has(id)
+      )
+    );
   }, [activeOverlays, sideLayers]);
 
   const risks = useMemo(() => {
@@ -385,7 +418,7 @@ export function OverviewPage({
     );
   }, [focusSearch, reverseAndChoose, t]);
 
-  const toggleOverlay = useCallback((id: OverlayLayerId) => {
+  const toggleOverlay = useCallback((id: SideLayerId) => {
     setActiveOverlays((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -438,6 +471,18 @@ export function OverviewPage({
       retryEnvironment={() => {
         void environmentQuery.refetch();
       }}
+      soilEnabled={activeOverlays.has('soil')}
+      soil={soilQuery.data}
+      soilLoading={soilQuery.isPending}
+      soilError={soilQuery.isError}
+      retrySoil={() => {
+        void soilQuery.refetch();
+      }}
+      soilLayerLoading={soilLayerQuery.isPending}
+      soilLayerError={soilLayerQuery.isError}
+      retrySoilLayer={() => {
+        void soilLayerQuery.refetch();
+      }}
     />
   );
 
@@ -453,6 +498,8 @@ export function OverviewPage({
         onSelectCommunity={() => undefined}
         onMapPick={handleMapPick}
         overlays={effectiveOverlays}
+        soilLayer={soilLayerQuery.data ?? null}
+        showSoilLayer={activeOverlays.has('soil')}
         radarHours={radarHours}
         mockMode={mockMode}
         scenarioName={scenarioName}
