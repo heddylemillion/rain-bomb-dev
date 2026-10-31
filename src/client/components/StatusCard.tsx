@@ -1,10 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  CircleAlert,
+  HelpCircle,
+  Share2,
+  TriangleAlert,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import type { AreaEnvironment, Community, RiskResult } from '../../shared/contracts.js';
 import { useTranslation, type MessageKey } from '../i18n.js';
 import { LEVEL_KEYS, LEVEL_SYMBOL, formatClock } from '../lib/risk.js';
 
 interface StatusCardProps {
   community: Community;
+  address?: string | undefined;
   risk: RiskResult | undefined;
   riskLoading: boolean;
   riskError: boolean;
@@ -106,36 +118,75 @@ function SeaLevelChart({
   if (segment.length > 1) lineSegments.push(segment.join(' '));
   const detailItems = values.map((item) => (
     <li key={item.timeISO}>
-      {formatBangkokTime(item.timeISO, language)}: {item.seaLevelHeightMslM === null
-        ? (language === 'th' ? 'ไม่มีข้อมูล' : 'No data')
+      {formatBangkokTime(item.timeISO, language)}:{' '}
+      {item.seaLevelHeightMslM === null
+        ? language === 'th'
+          ? 'ไม่มีข้อมูล'
+          : 'No data'
         : `${formatNumber(item.seaLevelHeightMslM)} ${language === 'th' ? 'ม.' : 'm'}`}
     </li>
   ));
   return (
-    <figure className="sea-level-chart">
-      <svg viewBox="0 0 300 88" role="img" aria-label={label} preserveAspectRatio="none">
-        <line x1="0" y1="44" x2="300" y2="44" className="sea-level-chart-grid" />
-        {lineSegments.map((points, index) => (
-          <polyline key={index} points={points} className="sea-level-chart-line" />
+    <figure className="mt-2 flex flex-col gap-1">
+      <svg
+        viewBox="0 0 300 88"
+        role="img"
+        aria-label={label}
+        preserveAspectRatio="none"
+        className="w-full h-16 rounded-lg bg-slate-950/60 border border-white/10"
+      >
+        <line
+          x1="0"
+          y1="44"
+          x2="300"
+          y2="44"
+          stroke="rgba(255,255,255,0.2)"
+          strokeDasharray="3 3"
+        />
+        {lineSegments.map((pts, index) => (
+          <polyline
+            key={index}
+            points={pts}
+            fill="none"
+            stroke="#38bdf8"
+            strokeWidth="2"
+          />
         ))}
         {points.map((point) => (
-          <circle key={point.index} cx={point.x} cy={point.y} r="1.7" className="sea-level-chart-dot" />
+          <circle key={point.index} cx={point.x} cy={point.y} r="1.7" fill="#7dd3fc" />
         ))}
       </svg>
-      <figcaption>{formatBangkokTime(valid[0]!.time, language)} – {formatBangkokTime(valid.at(-1)!.time, language)}</figcaption>
-      <details className="sea-level-chart-data">
-        <summary>{language === 'th' ? 'ดูค่ารายชั่วโมง' : 'View hourly values'}</summary>
-        <ol>{detailItems}</ol>
+      <figcaption className="text-[0.65rem] text-slate-200">
+        {formatBangkokTime(valid[0]!.time, language)} –{' '}
+        {formatBangkokTime(valid.at(-1)!.time, language)}
+      </figcaption>
+      <details className="text-xs text-slate-200">
+        <summary className="cursor-pointer min-h-[36px] inline-flex items-center font-medium text-sky-300">
+          {language === 'th' ? 'ดูค่ารายชั่วโมง' : 'View hourly values'}
+        </summary>
+        <ol className="max-h-32 overflow-y-auto pl-5 mt-1 space-y-0.5 text-[0.68rem]">
+          {detailItems}
+        </ol>
       </details>
     </figure>
   );
 }
 
 const speechSupported = (): boolean =>
-  typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  typeof window !== 'undefined' &&
+  'speechSynthesis' in window &&
+  'SpeechSynthesisUtterance' in window;
+
+function RiskIcon({ level }: { level: RiskResult['level'] | undefined }): React.ReactNode {
+  if (level === 'HIGH') return <TriangleAlert className="w-4 h-4 shrink-0" aria-hidden="true" />;
+  if (level === 'MEDIUM') return <CircleAlert className="w-4 h-4 shrink-0" aria-hidden="true" />;
+  if (level === 'LOW') return <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />;
+  return <HelpCircle className="w-4 h-4 shrink-0" aria-hidden="true" />;
+}
 
 export function StatusCard({
   community,
+  address,
   risk,
   riskLoading,
   riskError,
@@ -147,32 +198,51 @@ export function StatusCard({
   retryEnvironment,
 }: StatusCardProps): React.ReactNode {
   const { t, language } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? !window.matchMedia('(min-width: 1024px)').matches : false
+  );
   const [speaking, setSpeaking] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const lastAnnounced = useRef('');
   const name = language === 'th' ? community.name_th : community.name_en;
   const level = risk?.level;
   const keys = level && level !== 'INSUFFICIENT' ? LEVEL_KEYS[level] : null;
+  const statusWord = keys ? t(keys.status) : t('riskInsufficient');
+  const pillClass =
+    level === 'HIGH'
+      ? 'risk-pill risk-pill-high'
+      : level === 'MEDIUM'
+        ? 'risk-pill risk-pill-medium'
+        : level === 'LOW'
+          ? 'risk-pill risk-pill-low'
+          : 'risk-pill risk-pill-neutral';
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)');
+    const onChange = (event: MediaQueryListEvent): void => {
+      setCollapsed(!event.matches);
+    };
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
 
   useEffect(() => {
     if (!level) return;
     const key = `${community.id}:${level}`;
     if (key !== lastAnnounced.current) {
       lastAnnounced.current = key;
-      setAnnouncement(`${t('riskChangedAnnouncement')} ${name} ${t('riskChangedTo')} ${
-        keys ? t(keys.status) : t('riskInsufficient')
-      }`);
+      setAnnouncement(`${t('riskChangedAnnouncement')} ${name} ${t('riskChangedTo')} ${statusWord}`);
     }
-  }, [community.id, keys, level, name, t]);
+  }, [community.id, level, name, statusWord, t]);
 
-  useEffect(() => () => {
-    if (speechSupported()) window.speechSynthesis.cancel();
-  }, [community.id]);
+  useEffect(
+    () => () => {
+      if (speechSupported()) window.speechSynthesis.cancel();
+    },
+    [community.id]
+  );
 
-  const summary = risk
-    ? `${name}. ${keys ? t(keys.status) : t('riskInsufficient')}. ${risk.recommendationTh}`
-    : '';
+  const summary = risk ? `${name}. ${statusWord}. ${risk.recommendationTh}` : '';
   const toggleSpeech = (): void => {
     if (!speechSupported()) return;
     if (speaking) {
@@ -197,9 +267,7 @@ export function StatusCard({
       lon: String(community.lon),
       name: community.name_th,
     }).toString();
-    const text = `${t('shareText')} · ${community.name_th}: ${
-      keys ? t(keys.status) : t('riskInsufficient')
-    } — ${risk.recommendationTh}`;
+    const text = `${t('shareText')} · ${community.name_th}: ${statusWord} — ${risk.recommendationTh}`;
     window.open(
       `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(pageUrl.toString())}&text=${encodeURIComponent(text)}`,
       '_blank',
@@ -207,172 +275,314 @@ export function StatusCard({
     );
   };
 
+  const assessedClock = formatClock(risk?.fetchedAt ?? new Date().toISOString(), language);
+
+  if (collapsed) {
+    return (
+      <section
+        className={`status-card glass-panel rounded-2xl pointer-events-auto w-full md:w-auto ${
+          keys ? `status-${level?.toLowerCase()}` : ''
+        }`}
+        aria-label={`${name} — ${statusWord}`}
+        aria-busy={riskLoading}
+      >
+        <p className="sr-only" role="status" aria-live="polite">
+          {announcement}
+        </p>
+        <button
+          type="button"
+          aria-expanded="false"
+          aria-label={`${t('expandStatusCard')}: ${name} · ${statusWord}`}
+          onClick={() => setCollapsed(false)}
+          className="min-h-[48px] w-full px-3 py-1.5 flex items-center justify-between gap-2.5 text-left"
+        >
+          <span className="inline-flex items-center gap-2 min-w-0">
+            <span className={`${pillClass} inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold shrink-0`}>
+              <RiskIcon level={level} />
+              {keys && (
+                <span aria-hidden="true">
+                  {LEVEL_SYMBOL[level as 'HIGH' | 'MEDIUM' | 'LOW']}
+                </span>
+              )}
+              <span>{ riskLoading && !risk ? t('cardLoading') : statusWord }</span>
+            </span>
+            <span className="text-xs font-semibold text-slate-100 truncate">{name}</span>
+          </span>
+          <ChevronUp className="w-4 h-4 text-slate-100 shrink-0 md:rotate-180" aria-hidden="true" />
+        </button>
+      </section>
+    );
+  }
+
   return (
     <section
-      className={`status-card${expanded ? ' is-expanded' : ''}${keys ? ` status-${level?.toLowerCase()}` : ''}`}
+      className={`status-card glass-panel rounded-2xl pointer-events-auto w-full md:w-[clamp(300px,26vw,360px)] max-h-[38dvh] md:max-h-[min(55dvh,calc(100dvh-210px))] flex flex-col overflow-hidden ${
+        keys ? `status-${level?.toLowerCase()}` : ''
+      }`}
       aria-labelledby="status-card-title"
       aria-busy={riskLoading}
     >
-      <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
-      <div className="status-head">
-        <h2 id="status-card-title" className="status-community">{name}</h2>
+      <p className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </p>
+
+      <div className="flex items-start justify-between gap-2 px-3.5 pt-2.5 pb-2 border-b border-white/10 shrink-0">
+        <div className="min-w-0">
+          <h2 id="status-card-title" className="text-sm font-bold text-slate-50 truncate">
+            {name}
+          </h2>
+          {address && (
+            <p className="text-[0.68rem] text-slate-200 truncate" title={address}>
+              {address}
+            </p>
+          )}
+          <p className="text-[0.65rem] text-slate-200">
+            {t('sideCoordinates')}: {community.lat.toFixed(4)}, {community.lon.toFixed(4)}
+          </p>
+        </div>
+        <button
+          type="button"
+          aria-expanded="true"
+          aria-label={t('collapseStatusCard')}
+          title={t('collapseStatusCard')}
+          onClick={() => setCollapsed(true)}
+          className="glass-icon-btn min-w-[44px] min-h-[44px] -my-1 -mr-1.5 rounded-xl inline-flex items-center justify-center text-slate-100 shrink-0"
+        >
+          <ChevronDown className="w-4 h-4" aria-hidden="true" />
+        </button>
       </div>
 
-      <section className="environment-context" aria-labelledby="environment-context-title" aria-busy={environmentLoading}>
-        <h3 id="environment-context-title">{t('environmentContext')}</h3>
-        {environmentLoading && <p className="status-message">{t('environmentLoading')}</p>}
-        {environmentError && (
-          <div className="status-message" role="alert">
-            <p>{t('environmentLoadFailed')}</p>
-            <button type="button" className="action-button" onClick={retryEnvironment}>{t('retry')}</button>
+      <div className="overflow-y-auto px-3.5 py-3 flex flex-col gap-2.5 status-scroll-body">
+        {riskLoading && !risk && (
+          <p className="text-xs text-slate-200">{t('cardLoading')}</p>
+        )}
+        {riskError && !risk && (
+          <div className="glass-subcard rounded-xl p-2.5 flex flex-col gap-2" role="alert">
+            <p className="text-xs text-slate-100">{t('cardFailed')}</p>
+            <button
+              type="button"
+              className="glass-control-btn min-h-[44px] rounded-xl px-3 text-xs font-semibold"
+              onClick={retryRisk}
+            >
+              {t('retry')}
+            </button>
           </div>
         )}
-        {environment && (
+
+        {risk && (
           <>
-            <p>
-              {environment.elevation.valueM === null
-                ? t('noElevation')
-                : `${t('elevationEstimatePrefix')} ${formatNumber(environment.elevation.valueM)} ${t('elevationEstimateSuffix')}`}
-            </p>
-            {environment.elevation.messageTh && environment.elevation.valueM === null && (
-              <p className="status-updated">{environment.elevation.messageTh}</p>
-            )}
-            <div className="sea-level-context">
-              <h4>{t('seaLevelHeading')}</h4>
-              <p>{t('referencePoint')}: {environment.seaLevel.referencePoint.nameTh} · {formatNumber(environment.seaLevel.referencePoint.distanceKm)} {t('distanceUnit')}</p>
-              <p className="sea-level-warning">{t('seaLevelForecastLabel')}</p>
-              <p>{t('marineNotObserved')}</p>
-              <p>{t('marineDatumNotice')}</p>
-              <p>{t('marineAccuracyNotice')}</p>
-              <p>{t('marineNavigationNotice')}</p>
-              {environment.seaLevel.messageTh && (
-                <p className="status-updated" role="status">{t('noSeaLevelData')} · {environment.seaLevel.messageTh}</p>
-              )}
-              {environment.seaLevel.hourly.length > 0 && (
-                <>
-                  <p>{t('seaLevelChartHeading')}</p>
-                  <p>
-                    {t('seaLevelNow')} ({formatBangkokTime(environment.seaLevel.hourly[0]!.timeISO, language)}):
-                    {' '}{formatNumber(environment.seaLevel.hourly[0]!.seaLevelHeightMslM)} {t('meterUnit')}
-                  </p>
-                  <SeaLevelChart
-                    values={environment.seaLevel.hourly}
-                    language={language}
-                    label={t('seaLevelChartLabel')}
-                  />
-                </>
-              )}
-              <p className="sea-level-warning">{t('seaLevelAttribution')}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span
+                className={`${pillClass} inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-bold`}
+              >
+                <RiskIcon level={level} />
+                {keys && (
+                  <span aria-hidden="true">
+                    {LEVEL_SYMBOL[level as 'HIGH' | 'MEDIUM' | 'LOW']}
+                  </span>
+                )}
+                <span>{statusWord}</span>
+              </span>
+              <span className="text-xs font-semibold text-sky-200">
+                {t('riskTimeNow')} ({t('timeNow')} · {assessedClock} {t('timeSuffix')})
+              </span>
             </div>
-          </>
-        )}
-      </section>
 
-      {riskLoading && <p className="status-message">{t('cardLoading')}</p>}
-      {riskError && !risk && (
-        <div className="status-message" role="alert">
-          <p>{t('cardFailed')}</p>
-          <button type="button" className="action-button" onClick={retryRisk}>{t('retry')}</button>
-        </div>
-      )}
-
-      {risk && (
-        <>
-          <p className={`status-level${keys ? '' : ' status-insufficient'}`}>
-            {keys && <span className="status-symbol" aria-hidden="true">{LEVEL_SYMBOL[level as 'HIGH' | 'MEDIUM' | 'LOW']}</span>}
-            <span>{keys ? t(keys.status) : t('riskInsufficient')}</span>
-          </p>
-          <p className="status-action">
-            <span className="status-action-label">{t('whatToDo')}:</span>
-            <strong>{risk.recommendationTh}</strong>
-          </p>
-          {pointNotice && <p className="point-risk-notice">{pointNotice}</p>}
-
-          <button
-            type="button"
-            className="sheet-toggle"
-            aria-expanded={expanded}
-            aria-controls="status-extra"
-            onClick={() => setExpanded((value) => !value)}
-          >
-            {expanded ? t('collapseCard') : t('expandCard')} <span aria-hidden="true">{expanded ? '▾' : '▴'}</span>
-          </button>
-
-          <div id="status-extra" className="status-extra">
-            <p className="status-explain">{keys ? t(keys.explain) : t('insufficientExplain')}</p>
-            <p className="status-updated">
-              {t('updatedAtLabel')} {risk.fetchedAt ? formatClock(risk.fetchedAt, language) : t('noData')} {t('timeSuffix')}
+            <p className="text-xs leading-snug text-slate-50">
+              <span className="text-slate-200">{t('whatToDo')}: </span>
+              <strong className="font-semibold">{risk.recommendationTh}</strong>
             </p>
-            {risk.factors.some((factor) => factor.isStale) && (
-              <p className="status-updated" role="status">{t('staleData')}</p>
-            )}
-            <p className="status-updated">{t('confidenceLimited')}</p>
 
-            <div className="status-buttons">
+            {pointNotice && (
+              <p className="text-[0.7rem] leading-snug text-slate-200 bg-white/5 rounded-lg px-2.5 py-1.5 border border-white/10">
+                {pointNotice}
+              </p>
+            )}
+
+            <p className="text-[0.68rem] text-slate-200">
+              {t('updatedAtLabel')}{' '}
+              {risk.fetchedAt ? formatClock(risk.fetchedAt, language) : t('noData')}{' '}
+              {t('timeSuffix')}
+              {risk.factors.some((factor) => factor.isStale) ? ` · ${t('staleData')}` : ''}
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
               {speechSupported() && (
-                <button type="button" className="action-button" aria-pressed={speaking} onClick={toggleSpeech}>
-                  <span aria-hidden="true">🔊</span> {speaking ? t('readAloudStop') : t('readAloud')}
+                <button
+                  type="button"
+                  aria-pressed={speaking}
+                  onClick={toggleSpeech}
+                  className={`glass-control-btn min-h-[44px] rounded-xl px-2.5 inline-flex items-center justify-center gap-1.5 text-xs font-semibold ${
+                    speaking ? 'glass-control-active' : ''
+                  }`}
+                >
+                  {speaking ? (
+                    <VolumeX className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  ) : (
+                    <Volume2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+                  )}
+                  <span>{speaking ? t('readAloudStop') : t('readAloud')}</span>
                 </button>
               )}
-              <button type="button" className="action-button line-button" onClick={shareToLine}>
-                <span aria-hidden="true">💬</span> {t('shareLine')}
+              <button
+                type="button"
+                onClick={shareToLine}
+                className="glass-control-btn min-h-[44px] rounded-xl px-2.5 inline-flex items-center justify-center gap-1.5 text-xs font-semibold col-span-1"
+              >
+                <Share2 className="w-4 h-4 shrink-0 text-sky-300" aria-hidden="true" />
+                <span>{t('shareLine')}</span>
               </button>
             </div>
 
-            <details className="status-details">
-              <summary>{t('seeDetails')}</summary>
-              <p className="detail-plain">{t('detailPlain')}</p>
-              <dl className="detail-grid">
-                <dt>{t('detailScore')}</dt>
-                <dd>{risk.score === null ? t('riskInsufficient') : `${formatNumber(risk.score, 0)} / 100`}</dd>
-                <dt>{t('detailAlertType')}</dt>
-                <dd>{risk.alertType === 'URGENT' ? t('urgentAlert') : risk.alertType === 'ADVANCE' ? t('advanceAlert') : t('noAlert')}</dd>
-                <dt>{t('detailConfidence')}</dt>
-                <dd>{`${formatNumber(risk.confidence * 100, 0)}% · ${t(
-                  risk.confidenceLevel === 'LOW' ? 'lowConfidence'
-                    : risk.confidenceLevel === 'HIGH' ? 'highConfidence' : 'mediumConfidence'
-                )}`}</dd>
-                <dt>{t('lightningCount')}</dt>
-                <dd>{risk.lightningSummary.count30min === null ? t('noData') : formatNumber(risk.lightningSummary.count30min, 0)}</dd>
-                <dt>{t('nearestLightning')}</dt>
-                <dd>{risk.lightningSummary.nearestStrikeKm === null ? t('noData') : `${formatNumber(risk.lightningSummary.nearestStrikeKm)} กม.`}</dd>
-              </dl>
+            <details className="glass-subcard rounded-xl px-3 py-1">
+              <summary className="min-h-[44px] cursor-pointer flex items-center justify-between text-xs font-semibold text-sky-300 select-none">
+                <span>{t('seeDetails')}</span>
+              </summary>
+              <div className="pb-2.5 pt-1 flex flex-col gap-2 text-xs text-slate-200 border-t border-white/10">
+                <p>{keys ? t(keys.explain) : t('insufficientExplain')}</p>
+                <p className="text-[0.68rem]">{t('confidenceLimited')}</p>
+                <dl className="grid grid-cols-2 gap-x-2 gap-y-1 text-[0.7rem]">
+                  <dt className="text-slate-200">{t('detailScore')}</dt>
+                  <dd className="font-semibold text-slate-50 text-right">
+                    {risk.score === null ? t('riskInsufficient') : `${formatNumber(risk.score, 0)} / 100`}
+                  </dd>
+                  <dt className="text-slate-200">{t('detailAlertType')}</dt>
+                  <dd className="font-semibold text-slate-50 text-right">
+                    {risk.alertType === 'URGENT'
+                      ? t('urgentAlert')
+                      : risk.alertType === 'ADVANCE'
+                        ? t('advanceAlert')
+                        : t('noAlert')}
+                  </dd>
+                  <dt className="text-slate-200">{t('detailConfidence')}</dt>
+                  <dd className="font-semibold text-slate-50 text-right">
+                    {`${formatNumber(risk.confidence * 100, 0)}% · ${t(
+                      risk.confidenceLevel === 'LOW'
+                        ? 'lowConfidence'
+                        : risk.confidenceLevel === 'HIGH'
+                          ? 'highConfidence'
+                          : 'mediumConfidence'
+                    )}`}
+                  </dd>
+                  <dt className="text-slate-200">{t('lightningCount')}</dt>
+                  <dd className="font-semibold text-slate-50 text-right">
+                    {risk.lightningSummary.count30min === null
+                      ? t('noData')
+                      : formatNumber(risk.lightningSummary.count30min, 0)}
+                  </dd>
+                  <dt className="text-slate-200">{t('nearestLightning')}</dt>
+                  <dd className="font-semibold text-slate-50 text-right">
+                    {risk.lightningSummary.nearestStrikeKm === null
+                      ? t('noData')
+                      : `${formatNumber(risk.lightningSummary.nearestStrikeKm)} กม.`}
+                  </dd>
+                </dl>
 
-              <h3>{t('detailFactors')}</h3>
-              <div className="factor-table-wrap">
-                <table className="factor-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">{t('factorName')}</th>
-                      <th scope="col">{t('factorValue')}</th>
-                      <th scope="col">{t('detailNormalized')}</th>
-                      <th scope="col">{t('detailWeight')}</th>
-                      <th scope="col">{t('detailSource')}</th>
-                      <th scope="col">{t('detailObservedAt')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {risk.factors.map((factor) => (
-                      <tr key={factor.id}>
-                        <th scope="row">{t(FACTOR_NAME_KEYS[factor.id])}</th>
-                        <td>{factor.available ? `${formatNumber(factor.rawValue)} ${factor.unit}` : t('noData')}</td>
-                        <td>{factor.normalized === null ? '—' : formatNumber(factor.normalized, 2)}</td>
-                        <td>{formatNumber(factor.weight, 2)}</td>
-                        <td>{factor.source.startsWith('จำลอง (scenario:')
-                          ? factor.source
-                          : t(FACTOR_SOURCE_KEYS[factor.id])}{!factor.available ? ` · ${t(REASON_KEYS[factor.reason ?? 'error'])}` : ''}</td>
-                        <td>{factor.observedAt ? formatClock(factor.observedAt, language) : t('noData')}{factor.isStale ? ` · ${t('staleData')}` : ''}</td>
+                <h3 className="text-xs font-semibold text-slate-50 pt-1">{t('detailFactors')}</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-[0.66rem]">
+                    <thead>
+                      <tr className="border-b border-white/15 text-slate-100">
+                        <th scope="col" className="py-1 pr-2">{t('factorName')}</th>
+                        <th scope="col" className="py-1 px-1">{t('factorValue')}</th>
+                        <th scope="col" className="py-1 px-1">{t('detailWeight')}</th>
+                        <th scope="col" className="py-1 pl-1">{t('detailSource')}</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {risk.factors.map((factor) => (
+                        <tr key={factor.id} className="border-b border-white/5">
+                          <th scope="row" className="py-1 pr-2 font-medium text-slate-100">
+                            {t(FACTOR_NAME_KEYS[factor.id])}
+                          </th>
+                          <td className="py-1 px-1 text-slate-50 whitespace-nowrap">
+                            {factor.available ? `${formatNumber(factor.rawValue)} ${factor.unit}` : t('noData')}
+                          </td>
+                          <td className="py-1 px-1 text-slate-200">{formatNumber(factor.weight, 2)}</td>
+                          <td className="py-1 pl-1 text-slate-200">
+                            {factor.source.startsWith('จำลอง (scenario:')
+                              ? factor.source
+                              : t(FACTOR_SOURCE_KEYS[factor.id])}
+                            {!factor.available ? ` · ${t(REASON_KEYS[factor.reason ?? 'error'])}` : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[0.65rem]">{t('calibrationNotice')}</p>
               </div>
-              <p className="detail-plain">{t('calibrationNotice')}</p>
-              <p className="detail-plain">{t('environmentAttribution')}</p>
             </details>
+          </>
+        )}
+
+        <details className="glass-subcard rounded-xl px-3 py-1" aria-busy={environmentLoading}>
+          <summary className="min-h-[44px] cursor-pointer flex items-center justify-between text-xs font-semibold text-slate-100 select-none">
+            <span>{t('environmentContext')}</span>
+          </summary>
+          <div className="pb-2.5 pt-1 flex flex-col gap-1.5 text-[0.7rem] text-slate-200 border-t border-white/10">
+            {environmentLoading && <p>{t('environmentLoading')}</p>}
+            {environmentError && (
+              <div role="alert" className="flex flex-col gap-1.5">
+                <p>{t('environmentLoadFailed')}</p>
+                <button
+                  type="button"
+                  className="glass-control-btn min-h-[44px] rounded-xl px-3 text-xs font-semibold"
+                  onClick={retryEnvironment}
+                >
+                  {t('retry')}
+                </button>
+              </div>
+            )}
+            {environment && (
+              <>
+                <p className="text-slate-50 font-medium">
+                  {environment.elevation.valueM === null
+                    ? t('noElevation')
+                    : `${t('elevationEstimatePrefix')} ${formatNumber(environment.elevation.valueM)} ${t('elevationEstimateSuffix')}`}
+                </p>
+                {environment.elevation.messageTh && environment.elevation.valueM === null && (
+                  <p>{environment.elevation.messageTh}</p>
+                )}
+                <div className="pt-1 border-t border-white/10 flex flex-col gap-1">
+                  <h4 className="font-semibold text-slate-100">{t('seaLevelHeading')}</h4>
+                  <p>
+                    {t('referencePoint')}: {environment.seaLevel.referencePoint.nameTh} ·{' '}
+                    {formatNumber(environment.seaLevel.referencePoint.distanceKm)} {t('distanceUnit')}
+                  </p>
+                  <p className="text-sky-200 font-medium">{t('seaLevelForecastLabel')}</p>
+                  <p>{t('marineDatumNotice')}</p>
+                  {environment.seaLevel.messageTh && (
+                    <p role="status">
+                      {t('noSeaLevelData')} · {environment.seaLevel.messageTh}
+                    </p>
+                  )}
+                  {environment.seaLevel.hourly.length > 0 && (
+                    <>
+                      <p className="text-slate-100 font-medium">
+                        {t('seaLevelNow')} (
+                        {formatBangkokTime(environment.seaLevel.hourly[0]!.timeISO, language)}):{' '}
+                        {formatNumber(environment.seaLevel.hourly[0]!.seaLevelHeightMslM)}{' '}
+                        {t('meterUnit')}
+                      </p>
+                      <SeaLevelChart
+                        values={environment.seaLevel.hourly}
+                        language={language}
+                        label={t('seaLevelChartLabel')}
+                      />
+                    </>
+                  )}
+                  <p className="text-[0.64rem]">{t('seaLevelAttribution')}</p>
+                </div>
+              </>
+            )}
           </div>
-        </>
-      )}
+        </details>
+
+        <p className="text-[0.66rem] text-slate-200 border-t border-white/10 pt-2">
+          {t('decisionSupportShort')}
+        </p>
+      </div>
     </section>
   );
 }

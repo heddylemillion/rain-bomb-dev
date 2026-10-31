@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
@@ -11,8 +12,24 @@ const __dirname = path.dirname(__filename);
 export const ROOT_DIR = path.resolve(__dirname, '..', '..');
 export const COMMUNITIES_CONFIG_PATH = path.join(ROOT_DIR, 'config', 'communities.json');
 export const SEA_REFERENCE_POINTS_CONFIG_PATH = path.join(ROOT_DIR, 'config', 'sea-reference-points.json');
+export const STORM_CONFIG_PATH = path.join(ROOT_DIR, 'config', 'storm.json');
 export const DATA_DIR_PATH = path.join(ROOT_DIR, 'data');
 export const SAMPLES_DIR_PATH = path.join(ROOT_DIR, 'samples');
+
+const StormConfigFileSchema = z.object({
+  coneGrowthKmPer30Min: z.number().nonnegative().default(2.5),
+});
+
+function readDefaultConeGrowth(): number {
+  try {
+    const raw = JSON.parse(fs.readFileSync(STORM_CONFIG_PATH, 'utf8')) as unknown;
+    return StormConfigFileSchema.parse(raw).coneGrowthKmPer30Min;
+  } catch {
+    return 2.5;
+  }
+}
+
+const DEFAULT_STORM_CONE_GROWTH = readDefaultConeGrowth();
 
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
@@ -35,6 +52,7 @@ const EnvSchema = z.object({
     .string()
     .default('http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173'),
   DEMO_MODE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  STORM_CONE_KM_PER_30MIN: z.coerce.number().nonnegative().default(DEFAULT_STORM_CONE_GROWTH),
 }).superRefine((env, context) => {
   if (env.OPEN_METEO_COMMERCIAL && !env.OPEN_METEO_API_KEY.trim()) {
     context.addIssue({
@@ -70,6 +88,7 @@ export interface AppConfig {
   };
   corsAllowedOrigins: string[];
   demoMode: boolean;
+  stormConeKmPer30Min: number;
 }
 
 export function loadConfig(envInput: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -103,6 +122,7 @@ export function loadConfig(envInput: NodeJS.ProcessEnv = process.env): AppConfig
     },
     corsAllowedOrigins: origins,
     demoMode: parsed.DEMO_MODE,
+    stormConeKmPer30Min: parsed.STORM_CONE_KM_PER_30MIN,
   };
 }
 

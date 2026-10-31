@@ -7,11 +7,6 @@ const ModulePlaceholderPage = lazy(() =>
     default: module.ModulePlaceholderPage,
   }))
 );
-const OverviewPage = lazy(() =>
-  import('./pages/OverviewPage.js').then((module) => ({
-    default: module.OverviewPage,
-  }))
-);
 const MorePage = lazy(() =>
   import('./pages/MorePage.js').then((module) => ({
     default: module.MorePage,
@@ -25,10 +20,8 @@ const SystemStatusPage = lazy(() =>
 
 function RouteLoading(): React.ReactNode {
   return (
-    <div className="surface-card loading-card" aria-busy="true">
-      <span className="skeleton-line skeleton-title" />
-      <span className="skeleton-line" />
-      <span className="skeleton-line skeleton-short" />
+    <div className="glass-subcard rounded-2xl p-4" aria-busy="true">
+      <p className="text-sm text-slate-200">Loading…</p>
     </div>
   );
 }
@@ -38,7 +31,7 @@ export function App(): React.ReactNode {
     <Suspense fallback={<RouteLoading />}>
       <Routes>
         <Route element={<AppShell />}>
-          <Route index element={<OverviewPage />} />
+          <Route index element={null} />
           <Route path="forecast" element={<ModulePlaceholderPage />} />
           <Route path="alerts" element={<ModulePlaceholderPage />} />
           <Route path="history" element={<ModulePlaceholderPage />} />

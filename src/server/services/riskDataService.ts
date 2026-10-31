@@ -313,9 +313,13 @@ export class RiskDataService {
       fetchedAt: observedAt,
       isMock: true,
     });
-    result.noticeTh = nearest
-      ? `ฝนกำลังเข้าใกล้ ประมาณ ${nearest.etaMin} นาที · ข้อมูลจำลองจาก scenario: ${scenarioName}`
-      : `ไม่มีฝนใกล้พื้นที่ · ข้อมูลจำลองจาก scenario: ${scenarioName}`;
+    result.noticeTh = values.rainNowMmHr >= 2 || (nearest !== null && nearest.etaMin === 0 && values.rainNowMmHr >= 1)
+      ? `มีฝนตกในพื้นที่ตอนนี้ (${values.rainNowMmHr} มม./ชม.) · ข้อมูลจำลองจาก scenario: ${scenarioName}`
+      : nearest
+        ? `ฝนกำลังเข้าใกล้ ประมาณ ${nearest.etaMin} นาที · ข้อมูลจำลองจาก scenario: ${scenarioName}`
+        : values.rainNowMmHr >= 0.5
+          ? `มีฝนเล็กน้อยใกล้พื้นที่ (${values.rainNowMmHr} มม./ชม.) · ข้อมูลจำลองจาก scenario: ${scenarioName}`
+          : `ไม่มีฝนใกล้พื้นที่ · ข้อมูลจำลองจาก scenario: ${scenarioName}`;
     return result;
   }
 

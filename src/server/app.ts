@@ -117,6 +117,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
       riskDataService: new RiskDataService(xweatherClient, cfg.dataMode),
       demoMode: cfg.demoMode,
       dataMode: cfg.dataMode,
+      stormConeKmPer30Min: cfg.stormConeKmPer30Min,
       allowGeocodingInMock: cfg.geocoding.allowInMock,
       environmentDataService: options.environmentDataService ?? new EnvironmentDataService({
         mode: cfg.dataMode,

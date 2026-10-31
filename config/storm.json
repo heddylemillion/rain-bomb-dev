@@ -1,0 +1,6 @@
+{
+  "_comment": "Storm track projection and cone of uncertainty parameters",
+  "coneGrowthKmPer30Min": 2.5,
+  "forecastStepsMin": [30, 60, 90, 120, 180]
+}
+

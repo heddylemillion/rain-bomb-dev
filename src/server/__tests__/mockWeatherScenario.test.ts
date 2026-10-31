@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  activeCell,
+  buildStormTrackAndCone,
+  CELL_CORE_RADIUS_RATIO,
   cellPosition,
+  cellStage,
   countWithinKm,
   createMockScenario,
+  DEFAULT_CONE_KM_PER_30MIN,
   getMockRiskInputs,
   haversineDistanceKm,
   nearestApproachingCell,
   scenarioIntensity,
   scenarioLightningStrikes,
+  stormConeHalfWidthKm,
 } from '../../shared/mockWeatherScenario.js';
 import { RiskDataService } from '../services/riskDataService.js';
 import { XweatherClient } from '../services/xweatherClient.js';
@@ -122,5 +128,53 @@ describe('shared mock weather scenario', () => {
     expect(inputs.lightning30minCount).toBe(
       countWithinKm(scenario, demoPoint.lat, demoPoint.lon, 20, 30, 0)
     );
+  });
+
+  it('yields HIGH through the real risk engine at every active cell core in burst scenario', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const client = new XweatherClient({
+      baseUrl: 'https://data.api.xweather.com',
+      clientId: 'mock-mode-test',
+      clientSecret: 'mock-mode-test-secret',
+      fetchImpl,
+    });
+    const service = new RiskDataService(client, 'mock');
+    for (const date of ['2026-10-29', '2026-10-31', '2026-06-15']) {
+      const scenario = createMockScenario('burst', date);
+      const activeCells = scenario.cells.filter((cell) => activeCell(cell, 0));
+      expect(activeCells.length).toBeGreaterThan(0);
+      for (const cell of activeCells) {
+        expect(cellStage(cell, 0)).toBe('mature');
+        const center = cellPosition(cell, 0);
+        const edgeLat = center.lat + (cell.radiusKm * CELL_CORE_RADIUS_RATIO * 0.9) / 111;
+        for (const point of [center, { lat: edgeLat, lon: center.lon }]) {
+          const risk = await service.getPointRisk(point.lat, point.lon, {
+            scenario: 'burst',
+            date,
+            offsetMin: 0,
+          });
+          expect(risk.level).toBe('HIGH');
+          expect(risk.noticeTh).not.toContain('ไม่มีฝนใกล้พื้นที่');
+        }
+      }
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('projects storm track dots at +30/60/90/120/180 min and grows cone width r(t) = r0 + k*(t/30)', () => {
+    const scenario = createMockScenario('burst', testDate);
+    const cell = scenario.cells[1]!;
+    const track = buildStormTrackAndCone(cell, 0, DEFAULT_CONE_KM_PER_30MIN);
+    expect(track.forecastDots.map((dot) => dot.stepMin)).toEqual([30, 60, 90, 120, 180]);
+    const r0 = Math.max(1.5, cell.radiusKm * CELL_CORE_RADIUS_RATIO);
+    for (const dot of track.forecastDots) {
+      const expectedPos = cellPosition(cell, dot.stepMin);
+      expect(dot.lat).toBeCloseTo(expectedPos.lat, 6);
+      expect(dot.lon).toBeCloseTo(expectedPos.lon, 6);
+      expect(dot.halfWidthKm).toBeCloseTo(stormConeHalfWidthKm(r0, dot.stepMin, 2.5), 6);
+    }
+    const wider = buildStormTrackAndCone(cell, 0, 5.0);
+    expect(wider.forecastDots[4]!.halfWidthKm - wider.forecastDots[0]!.halfWidthKm).toBeCloseTo(5.0 * 5, 5);
+    expect(track.conePolygon.length).toBeGreaterThanOrEqual(16);
   });
 });

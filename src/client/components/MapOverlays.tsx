@@ -1,106 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Capability, Community, OverlayLayerId } from '../../shared/contracts.js';
-import { useTranslation, type MessageKey } from '../i18n.js';
-import { formatClock, LEVEL_SYMBOL, type RiskLevel } from '../lib/risk.js';
-
-/* ---------------------------------------------------------------- picker */
-
-export function CommunityPicker({
-  communities,
-  selectedId,
-  onChange,
-}: {
-  communities: Community[];
-  selectedId: string | null;
-  onChange: (id: string) => void;
-}): React.ReactNode {
-  const { t, language } = useTranslation();
-  return (
-    <div className="map-panel picker-panel">
-      <label className="picker-label" htmlFor="community-select">
-        {t('yourCommunity')}
-      </label>
-      <div className="select-wrap">
-        <select
-          id="community-select"
-          className="picker-select"
-          value={selectedId ?? ''}
-          onChange={(event) => {
-            if (event.target.value) {
-              onChange(event.target.value);
-            }
-          }}
-        >
-          <option value="" disabled>
-            {t('chooseCommunity')}
-          </option>
-          {communities.map((community) => (
-            <option key={community.id} value={community.id}>
-              {language === 'th' ? community.name_th : community.name_en}
-            </option>
-          ))}
-        </select>
-        <span className="select-caret" aria-hidden="true">▾</span>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------- first visit */
-
-export function FirstVisitPrompt({
-  communities,
-  onChoose,
-}: {
-  communities: Community[];
-  onChoose: (id: string) => void;
-}): React.ReactNode {
-  const { t, language } = useTranslation();
-  const firstButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    firstButton.current?.focus({ preventScroll: true });
-  }, []);
-  return (
-    <div className="first-visit-backdrop">
-      <div className="first-visit-card" role="dialog" aria-labelledby="first-visit-title">
-        <h2 id="first-visit-title">{t('chooseCommunity')}</h2>
-        <p>{t('chooseCommunityHint')}</p>
-        <ul className="first-visit-list">
-          {communities.map((community, index) => (
-            <li key={community.id}>
-              <button
-                ref={index === 0 ? firstButton : undefined}
-                type="button"
-                className="big-choice"
-                onClick={() => onChoose(community.id)}
-              >
-                {language === 'th' ? community.name_th : community.name_en}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------- layer panel */
+import { LocateFixed, Minus, Pause, Play, Plus } from 'lucide-react';
+import type { Capability, OverlayLayerId } from '../../shared/contracts.js';
+import { useTranslation } from '../i18n.js';
+import { GlassTooltip, useAccessibleTooltip } from './GlassTooltip.js';
 
 export type MapLayerId = 'risk' | OverlayLayerId;
-
-const LAYER_LABEL: Record<MapLayerId, MessageKey> = {
-  risk: 'layerRisk',
-  radar: 'layerRadar',
-  lightning: 'layerLightning',
-  storm: 'layerStorm',
-};
-
-const LAYER_ICON: Record<MapLayerId, string> = {
-  risk: '▲',
-  radar: '☔',
-  lightning: '⚡',
-  storm: '🌀',
-};
 
 export interface LayerAvailability {
   id: MapLayerId;
@@ -110,330 +14,282 @@ export interface LayerAvailability {
   mock?: boolean;
 }
 
-function unavailableText(reason: Capability['reason']): MessageKey {
-  if (reason === 'no_plan') {
-    return 'layerNoPlan';
-  }
-  if (reason === 'no_coverage') {
-    return 'layerNoCoverage';
-  }
-  return 'layerUnavailable';
-}
-
-export function LayerPanel({
-  layers,
-  active,
-  onToggle,
-  defaultOpen,
-  mockMode = false,
-  scenario = 'moderate',
-  onScenarioChange,
-  mockOverlays = new Set(),
-}: {
-  layers: LayerAvailability[];
-  active: ReadonlySet<MapLayerId>;
-  onToggle: (id: MapLayerId) => void;
-  defaultOpen: boolean;
-  mockMode?: boolean;
-  scenario?: 'calm' | 'moderate' | 'burst';
-  onScenarioChange?: (name: 'calm' | 'moderate' | 'burst') => void;
-  mockOverlays?: ReadonlySet<OverlayLayerId>;
-}): React.ReactNode {
-  const { t, language } = useTranslation();
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className={`map-panel layer-panel${open ? ' is-open' : ''}`}>
-      <button
-        type="button"
-        className="layer-toggle"
-        aria-expanded={open}
-        aria-controls="layer-list"
-        onClick={() => setOpen((value) => !value)}
-      >
-        {t('mapLayers')}
-        {mockMode && mockOverlays.size > 0 && <span className="mock-map-badge">{t('mockMapBadge')}</span>}
-        <span aria-hidden="true">{open ? '▴' : '▾'}</span>
-      </button>
-      <ul id="layer-list" className="layer-list" aria-label={t('mapLayers')}>
-        {layers.map(({ id, available, reason, updatedAt, mock }) => {
-          const on = active.has(id);
-          return (
-            <li key={id}>
-              <button
-                type="button"
-                className={`layer-button${on ? ' layer-on' : ''}`}
-                aria-pressed={on}
-                disabled={!available}
-                onClick={() => onToggle(id)}
-              >
-                <span className="layer-icon" aria-hidden="true">{LAYER_ICON[id]}</span>
-                <span className="layer-text">
-                  <span className="layer-name">{t(LAYER_LABEL[id])}</span>
-                  <span className="layer-state">
-                    {available ? (on ? `✓ ${t('layerOn')}` : t('layerOff')) : t(unavailableText(reason))}
-                    {mock && <span className="mock-layer-pill">{t('mockPill')}</span>}
-                    {mock && on && (
-                      <span className="layer-updated"> · {t('mockUpdated')} {formatClock(updatedAt ?? new Date().toISOString(), language)}</span>
-                    )}
-                    {!mock && updatedAt && <span className="layer-updated"> · {t('updatedAt')} {formatClock(updatedAt, language)}</span>}
-                  </span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      {mockMode && onScenarioChange && (
-        <div className="scenario-control">
-          <label htmlFor="mock-scenario">{t('mockScenarioLabel')}</label>
-          <select
-            id="mock-scenario"
-            value={scenario}
-            onChange={(event) => {
-              const next = event.target.value;
-              if (next === 'calm' || next === 'moderate' || next === 'burst') onScenarioChange(next);
-            }}
-          >
-            <option value="calm">{t('scenarioCalm')}</option>
-            <option value="moderate">{t('scenarioModerate')}</option>
-            <option value="burst">{t('scenarioBurst')}</option>
-          </select>
-          <details className="mock-layer-legend">
-            <summary>{t('mockLegendTitle')}</summary>
-            {mockOverlays.has('radar') && (
-              <div>
-                <strong>{t('mockRadarLegend')}</strong>
-                <div className="mock-radar-ramp"><span>0.2</span><span>2</span><span>5</span><span>10</span><span>20</span><span>40+</span></div>
-              </div>
-            )}
-            {mockOverlays.has('lightning') && (
-              <div><strong>{t('mockLightningLegend')}</strong><p>⚡ {t('mockAgeRecent')} · ⚡ {t('mockAgeMid')} · ⚡ {t('mockAgeOld')}</p></div>
-            )}
-            {mockOverlays.has('storm') && (
-              <div><strong>{t('mockStormLegend')}</strong><p>⛈ {t('mockStormPathHint')}</p></div>
-            )}
-          </details>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------- controls */
-
 export function MapControls({
   onZoomIn,
   onZoomOut,
   onLocate,
   locating,
-  locateMessage,
 }: {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onLocate: () => void;
   locating: boolean;
-  locateMessage: string | null;
 }): React.ReactNode {
   const { t } = useTranslation();
+  const zoomInTip = useAccessibleTooltip(true);
+  const zoomOutTip = useAccessibleTooltip(true);
+  const locateTip = useAccessibleTooltip(true);
+
   return (
-    <div className="map-controls">
-      <div className="map-controls-row">
-        <button type="button" className="map-button zoom-button" aria-label={t('zoomInAria')} onClick={onZoomIn}>
-          <span aria-hidden="true">+</span>
-          <span className="zoom-word">{t('zoomInShort')}</span>
+    <div
+      className="map-controls glass-panel rounded-2xl p-1 flex flex-col gap-1 pointer-events-auto"
+      role="group"
+      aria-label={t('mapRegionLabel')}
+    >
+      <div className="relative">
+        <button
+          type="button"
+          aria-label={t('zoomInAria')}
+          {...zoomInTip.triggerProps}
+          onClick={onZoomIn}
+          className="glass-icon-btn min-w-[44px] min-h-[44px] rounded-xl inline-flex items-center justify-center text-slate-50"
+        >
+          <Plus className="w-4 h-4" aria-hidden="true" />
         </button>
-        <button type="button" className="map-button zoom-button" aria-label={t('zoomOutAria')} onClick={onZoomOut}>
-          <span aria-hidden="true">−</span>
-          <span className="zoom-word">{t('zoomOutShort')}</span>
-        </button>
-        <button type="button" className="map-button locate-button" onClick={onLocate} aria-busy={locating}>
-          <span aria-hidden="true">◎</span> {t('myLocation')}
-        </button>
+        <GlassTooltip id={zoomInTip.tooltipId} open={zoomInTip.open} placement="left">
+          {t('zoomInAria')}
+        </GlassTooltip>
       </div>
-      {locateMessage && (
-        <p className="locate-message" role="status">
-          {locateMessage}
-        </p>
-      )}
+
+      <div className="relative border-t border-white/10 pt-1">
+        <button
+          type="button"
+          aria-label={t('zoomOutAria')}
+          {...zoomOutTip.triggerProps}
+          onClick={onZoomOut}
+          className="glass-icon-btn min-w-[44px] min-h-[44px] rounded-xl inline-flex items-center justify-center text-slate-50"
+        >
+          <Minus className="w-4 h-4" aria-hidden="true" />
+        </button>
+        <GlassTooltip id={zoomOutTip.tooltipId} open={zoomOutTip.open} placement="left">
+          {t('zoomOutAria')}
+        </GlassTooltip>
+      </div>
+
+      <div className="relative border-t border-white/10 pt-1">
+        <button
+          type="button"
+          aria-label={t('myLocation')}
+          aria-busy={locating}
+          disabled={locating}
+          {...locateTip.triggerProps}
+          onClick={onLocate}
+          className="glass-icon-btn min-w-[44px] min-h-[44px] rounded-xl inline-flex items-center justify-center text-sky-300"
+        >
+          <LocateFixed className="w-4 h-4" aria-hidden="true" />
+        </button>
+        <GlassTooltip id={locateTip.tooltipId} open={locateTip.open} placement="left">
+          {t('myLocation')}
+        </GlassTooltip>
+      </div>
     </div>
   );
 }
 
-/* --------------------------------------------------------------- legend */
+const PLAY_INTERVAL_MS = 1200;
 
-export function Legend({ defaultOpen }: { defaultOpen: boolean }): React.ReactNode {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(defaultOpen);
-  const levels: ReadonlyArray<{ level: RiskLevel; key: MessageKey }> = [
-    { level: 'HIGH', key: 'riskHigh' },
-    { level: 'MEDIUM', key: 'riskMedium' },
-    { level: 'LOW', key: 'riskLow' },
-  ];
-  return (
-    <div className="map-panel legend-panel">
-      <button
-        type="button"
-        className="legend-toggle"
-        aria-expanded={open}
-        aria-controls="legend-list"
-        onClick={() => setOpen((value) => !value)}
-      >
-        {t('legendTitle')} <span aria-hidden="true">{open ? '▴' : '▾'}</span>
-        <span className="sr-only"> — {open ? t('legendToggleHide') : t('legendToggleShow')}</span>
-      </button>
-      {open && (
-        <ul id="legend-list" className="legend-list" aria-label={t('mapLegend')}>
-          {levels.map(({ level, key }) => (
-            <li key={level} className={`legend-entry legend-${level.toLowerCase()}`}>
-              <span className="legend-symbol" aria-hidden="true">{LEVEL_SYMBOL[level]}</span>
-              {t(key)}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------- time slider */
-
-const RADAR_HOURS = [-3, -2, -1, 0] as const;
-const HOUR_LABEL: Record<number, MessageKey> = {
-  [-3]: 'timePast3',
-  [-2]: 'timePast2',
-  [-1]: 'timePast1',
-  0: 'timeNow',
-};
-
-const NOW_INDEX = RADAR_HOURS.indexOf(0);
-const PLAY_INTERVAL_MS = 1400;
-
-/** Radar time slider. Playback only starts when the user presses "เล่น" (no autoplay). */
+/**
+ * Centered floating glass timeline.
+ * Playback only starts when the user presses "เล่น" (never autoplays).
+ * Steps by 10 minutes; in live mode without radar forecast frames, hides the future segment.
+ */
 export function RadarSlider({
-  hours,
-  onChange,
-  mockMode = false,
-  minutes = 0,
+  mockMode,
+  minutes,
   onMinutesChange,
-  opacity = 0.7,
-  onOpacityChange,
+  onHoursChange,
 }: {
-  hours: number;
-  onChange: (hours: number) => void;
-  mockMode?: boolean;
-  minutes?: number;
-  onMinutesChange?: (minutes: number) => void;
-  opacity?: number;
-  onOpacityChange?: (opacity: number) => void;
+  mockMode: boolean;
+  minutes: number;
+  onMinutesChange: (minutes: number) => void;
+  onHoursChange: (hours: number) => void;
 }): React.ReactNode {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [playing, setPlaying] = useState(false);
   const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
-  const reduceMotion = useRef(window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const index = Math.max(0, RADAR_HOURS.indexOf(hours as (typeof RADAR_HOURS)[number]));
-  const indexRef = useRef(index);
-  indexRef.current = index;
-  const minuteIndex = Math.max(0, Math.min(36, Math.round((minutes + 180) / 10)));
-  const minuteIndexRef = useRef(minuteIndex);
-  minuteIndexRef.current = minuteIndex;
+  const [reduceMotion, setReduceMotion] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+
+  // Live mode has no verified radar forecast frames, so future segment is hidden (max = 0).
+  const hasForecast = mockMode;
+  const maxMin = hasForecast ? 180 : 0;
+  const clampedMinutes = Math.max(-180, Math.min(maxMin, Math.round(minutes / 10) * 10));
+  const minutesRef = useRef(clampedMinutes);
+  minutesRef.current = clampedMinutes;
+
+  useEffect(() => {
+    if (!hasForecast && minutes > 0) {
+      onMinutesChange(0);
+      onHoursChange(0);
+    }
+  }, [hasForecast, minutes, onHoursChange, onMinutesChange]);
 
   useEffect(() => {
     const updateVisibility = (): void => setVisible(document.visibilityState === 'visible');
+    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updateMotion = (event: MediaQueryListEvent): void => {
+      setReduceMotion(event.matches);
+      if (event.matches) setPlaying(false);
+    };
     document.addEventListener('visibilitychange', updateVisibility);
-    return () => document.removeEventListener('visibilitychange', updateVisibility);
+    media.addEventListener('change', updateMotion);
+    return () => {
+      document.removeEventListener('visibilitychange', updateVisibility);
+      media.removeEventListener('change', updateMotion);
+    };
   }, []);
 
   useEffect(() => {
-    if (!playing || !visible || (mockMode && reduceMotion.current)) {
-      return undefined;
-    }
+    if (!playing || !visible || reduceMotion) return undefined;
     const timer = window.setInterval(() => {
-      if (mockMode) {
-        const next = (minuteIndexRef.current + 1) % 37;
-        onMinutesChange?.(next * 10 - 180);
-        return;
-      }
-      const next = (indexRef.current + 1) % RADAR_HOURS.length;
-      onChange(RADAR_HOURS[next] ?? 0);
+      const next = minutesRef.current + 10 > maxMin ? -180 : minutesRef.current + 10;
+      onMinutesChange(next);
+      onHoursChange(Math.max(-3, Math.min(0, Math.round(next / 60))));
     }, PLAY_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [mockMode, onChange, onMinutesChange, playing, visible]);
+  }, [maxMin, onHoursChange, onMinutesChange, playing, reduceMotion, visible]);
 
-  const currentLabel = t(HOUR_LABEL[hours] ?? 'timeNow');
-  const mockTime = new Intl.DateTimeFormat('th-TH', {
+  const frameClock = new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
     hour: '2-digit',
     minute: '2-digit',
     timeZone: 'Asia/Bangkok',
-  }).format(new Date(Date.now() + minutes * 60_000));
+  }).format(new Date(Date.now() + clampedMinutes * 60_000));
+
+  const offsetText =
+    clampedMinutes === 0
+      ? t('timeNow')
+      : `${clampedMinutes > 0 ? '+' : '−'}${Math.abs(clampedMinutes)} ${language === 'th' ? 'นาที' : 'min'}`;
+
+  const pastFillPct = hasForecast
+    ? Math.min(50, ((clampedMinutes + 180) / 360) * 100)
+    : ((clampedMinutes + 180) / 180) * 100;
+  const futureFillPct =
+    hasForecast && clampedMinutes > 0 ? (clampedMinutes / 360) * 100 : 0;
+
   return (
-    <div className="map-panel slider-panel">
-      <div className="slider-row">
+    <section
+      aria-label={mockMode ? t('mockTimelineLabel') : t('timeSliderLabel')}
+      className="slider-panel glass-panel rounded-2xl px-2.5 sm:px-3.5 py-1.5 sm:py-2.5 w-[min(640px,calc(100vw-16px))] md:w-[min(640px,calc(100vw-32px))] pointer-events-auto"
+    >
+      <div className="flex items-center gap-2 sm:gap-3">
         <button
           type="button"
-          className="map-button play-button"
           aria-pressed={playing}
-          disabled={mockMode && reduceMotion.current}
-          onClick={() => setPlaying((value) => !value)}
+          disabled={reduceMotion}
+          onClick={() => setPlaying((current) => !current)}
+          className={`glass-control-btn min-h-[44px] min-w-[74px] sm:min-w-[82px] px-2.5 sm:px-3 rounded-xl inline-flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold shrink-0 ${
+            playing ? 'glass-control-active' : ''
+          }`}
         >
-          <span aria-hidden="true">{playing ? '❚❚' : '▶'}</span> {playing ? t('timePause') : t('timePlay')}
+          {playing ? (
+            <Pause className="w-4 h-4 shrink-0" aria-hidden="true" />
+          ) : (
+            <Play className="w-4 h-4 shrink-0" aria-hidden="true" />
+          )}
+          <span>{playing ? t('timePause') : t('timePlay')}</span>
         </button>
-        <div className="slider-main">
-          <label htmlFor="radar-time" className="slider-title">
-            {mockMode ? t('mockTimelineLabel') : t('timeSliderLabel')}: <strong>{mockMode ? `${minutes > 0 ? '+' : ''}${minutes} นาที · ${mockTime}` : currentLabel}</strong>
-          </label>
-          <input
-            id="radar-time"
-            type="range"
-            className="slider-input"
-            min={mockMode ? 0 : 0}
-            max={mockMode ? 36 : RADAR_HOURS.length - 1}
-            step={mockMode ? 1 : 1}
-            value={mockMode ? minuteIndex : index}
-            aria-valuetext={mockMode ? `${minutes} นาที · ${mockTime}` : currentLabel}
-            onChange={(event) => {
-              setPlaying(false);
-              if (mockMode) onMinutesChange?.(Number(event.target.value) * 10 - 180);
-              else onChange(RADAR_HOURS[Number(event.target.value)] ?? 0);
-            }}
-          />
-          <div className="slider-ticks" aria-hidden="true">
-            {mockMode ? (
+
+        <div className="flex-1 min-w-0 flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-2 text-[0.7rem] sm:text-xs leading-tight">
+            <label htmlFor="radar-time" className="font-semibold text-slate-50 truncate">
+              {frameClock} {t('timeSuffix')} ·{' '}
+              <span className="text-sky-300">{offsetText}</span>
+            </label>
+
+            {hasForecast ? (
+              <span className="timeline-forecast-tag px-1.5 py-0.5 rounded-md text-[0.64rem] font-semibold shrink-0">
+                {t('radarForecastSimulated')}
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.5 rounded-md bg-white/10 border border-white/15 text-[0.64rem] font-semibold text-slate-100 shrink-0">
+                {t('noRadarForecast')}
+              </span>
+            )}
+          </div>
+
+          <div className="relative h-6 flex items-center">
+            <div
+              className="w-full h-2.5 rounded-full overflow-hidden flex border border-white/15 bg-slate-950/70"
+              aria-hidden="true"
+            >
+              {hasForecast ? (
+                <>
+                  <div className="w-1/2 h-full relative timeline-segment-past">
+                    <div
+                      className="h-full bg-sky-400"
+                      style={{ width: `${Math.min(100, pastFillPct * 2)}%` }}
+                    />
+                  </div>
+                  <div className="w-1/2 h-full relative timeline-segment-future border-l-2 border-dashed border-sky-200/80">
+                    {futureFillPct > 0 && (
+                      <div
+                        className="h-full bg-indigo-400/70"
+                        style={{ width: `${Math.min(100, futureFillPct * 2)}%` }}
+                      />
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="w-full h-full relative timeline-segment-past">
+                  <div
+                    className="h-full bg-sky-400"
+                    style={{ width: `${Math.max(0, Math.min(100, pastFillPct))}%` }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <span
+              aria-hidden="true"
+              className="timeline-now-pin pointer-events-none"
+              style={{ left: hasForecast ? '50%' : '100%' }}
+            />
+
+            <input
+              id="radar-time"
+              type="range"
+              min={-180}
+              max={maxMin}
+              step={10}
+              value={clampedMinutes}
+              aria-valuetext={`${frameClock} · ${offsetText}${
+                hasForecast && clampedMinutes > 0 ? ` · ${t('radarForecastSimulated')}` : ''
+              }`}
+              onChange={(event) => {
+                setPlaying(false);
+                const next = Number(event.target.value);
+                onMinutesChange(next);
+                onHoursChange(Math.max(-3, Math.min(0, Math.round(next / 60))));
+              }}
+              className="timeline-range-input absolute inset-0 w-full h-full m-0 cursor-pointer"
+            />
+          </div>
+
+          <div
+            className="flex items-center justify-between text-[0.6rem] sm:text-[0.65rem] font-medium text-slate-200 leading-none"
+            aria-hidden="true"
+          >
+            {hasForecast ? (
               <>
-                <span>−3 ชม.</span>
-                <span style={{ fontWeight: minutes === 0 ? 800 : 500 }}>{t('timeNow')}</span>
-                <span>+3 ชม.</span>
+                <span>{t('timePast3')}</span>
+                <span className={clampedMinutes === 0 ? 'font-bold text-sky-300' : ''}>
+                  {t('timeNow')}
+                </span>
+                <span>{t('timeNext3')}</span>
               </>
             ) : (
               <>
                 <span>{t('timePast3')}</span>
                 <span>{t('timePast1')}</span>
-                <span style={{ fontWeight: index === NOW_INDEX ? 800 : 500 }}>{t('timeNow')}</span>
+                <span className={clampedMinutes === 0 ? 'font-bold text-sky-300' : ''}>
+                  {t('timeNow')}
+                </span>
               </>
             )}
           </div>
         </div>
       </div>
-      {mockMode ? (
-        <>
-          <p className="slider-note">{t('mockStepLabel')}</p>
-          <div className="mock-radar-opacity">
-            <label htmlFor="mock-radar-opacity">{t('mockRadarOpacity')}</label>
-            <input
-              id="mock-radar-opacity"
-              type="range"
-              min={0.2}
-              max={1}
-              step={0.05}
-              value={opacity}
-              onChange={(event) => onOpacityChange?.(Number(event.target.value))}
-              aria-valuetext={`${Math.round(opacity * 100)}%`}
-            />
-            <span>{Math.round(opacity * 100)}%</span>
-          </div>
-        </>
-      ) : (
-        <p className="slider-note">{t('radarPastOnly')} · {t('radarTilesUnverified')} · Xweather</p>
-      )}
-    </div>
+    </section>
   );
 }

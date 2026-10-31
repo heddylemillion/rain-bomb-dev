@@ -76,8 +76,24 @@ function seededRandom(seed: number): () => number {
 
 export function createMockScenario(name: MockScenarioName, date: string): MockScenario {
   const random = seededRandom(hashSeed(`${name}:${date}`));
-  const centerPeaks: Record<MockScenarioName, number> = { calm: 0.8, moderate: 12, burst: 82 };
-  const spreadPeaks: Record<MockScenarioName, number> = { calm: 1.4, moderate: 11, burst: 58 };
+  const centerPeaks: Record<MockScenarioName, number> = { calm: 0.8, moderate: 14, burst: 82 };
+  const spreadPeaks: Record<MockScenarioName, number> = { calm: 1.4, moderate: 11, burst: 80 };
+  /**
+   * Minimum share of the spread peak. A "burst" (rain bomb) is made of mature convective
+   * cores, so every burst cell is intense; weaker scenarios keep a wide spread.
+   */
+  const peakFloor: Record<MockScenarioName, number> = { calm: 0.25, moderate: 0.3, burst: 0.72 };
+  /** Rain-bomb cells are slow-moving, which is what lets rain pile up over one place. */
+  const speedRange: Record<MockScenarioName, [number, number]> = {
+    calm: [5, 22],
+    moderate: [5, 20],
+    burst: [2, 5.5],
+  };
+  const radiusRange: Record<MockScenarioName, [number, number]> = {
+    calm: [5, 18],
+    moderate: [6, 18],
+    burst: [10, 18],
+  };
   const cells: MockStormCell[] = [];
 
   for (let index = 0; index < 16; index += 1) {
@@ -87,21 +103,35 @@ export function createMockScenario(name: MockScenarioName, date: string): MockSc
     const eastKm = central ? 0 : Math.cos(angle) * distanceKm;
     const northKm = central ? 0 : Math.sin(angle) * distanceKm;
     const heading = random() * Math.PI * 2;
-    const speed = central ? 2 : 5 + random() * 18;
+    const [minSpeed, maxSpeed] = speedRange[name];
+    const speed = central ? 2 : minSpeed + random() * (maxSpeed - minSpeed);
+    const [minRadius, maxRadius] = radiusRange[name];
+    const radiusKm = central ? 14 : minRadius + random() * (maxRadius - minRadius);
+    const floor = peakFloor[name];
     const peak = central
       ? centerPeaks[name]
-      : (0.25 + random() * 0.75) * spreadPeaks[name];
+      : (floor + random() * (1 - floor)) * spreadPeaks[name];
+    const startOffsetMin = central
+      ? -240
+      : name === 'burst'
+        ? -240 + Math.floor(random() * 150)
+        : -180 + Math.floor(random() * 110);
+    const lifetimeMin = central
+      ? 900
+      : name === 'burst'
+        ? 480 + Math.floor(random() * 360)
+        : 300 + Math.floor(random() * 360);
 
     cells.push({
       id: `cell-${index + 1}`,
       lat: DEFAULT_DEMO_POINT.lat + (northKm / 111),
       lon: DEFAULT_DEMO_POINT.lon + (eastKm / (111 * Math.cos(DEFAULT_DEMO_POINT.lat * Math.PI / 180))),
-      radiusKm: central ? 14 : 5 + random() * 14,
+      radiusKm,
       peakMmHr: Math.round(peak * 10) / 10,
       vxKmH: Math.cos(heading) * speed,
       vyKmH: Math.sin(heading) * speed,
-      startOffsetMin: central ? -240 : -180 + Math.floor(random() * 120),
-      lifetimeMin: central ? 840 : 180 + Math.floor(random() * 360),
+      startOffsetMin,
+      lifetimeMin,
     });
   }
   return { name, date, cells };
@@ -109,6 +139,59 @@ export function createMockScenario(name: MockScenarioName, date: string): MockSc
 
 export function activeCell(cell: MockStormCell, offsetMin: number): boolean {
   return offsetMin >= cell.startOffsetMin && offsetMin <= cell.startOffsetMin + cell.lifetimeMin;
+}
+
+export type MockCellStage = 'developing' | 'mature' | 'dissipating';
+
+/** Minutes a cell needs to reach full strength, and the window before it ends where it decays. */
+export const CELL_GROWTH_MIN = 45;
+export const CELL_DECAY_MIN = 120;
+/** Share of the radius treated as the convective core (where rain and lightning concentrate). */
+export const CELL_CORE_RADIUS_RATIO = 0.35;
+
+export function cellStage(cell: MockStormCell, offsetMin: number): MockCellStage | null {
+  if (!activeCell(cell, offsetMin)) return null;
+  const age = offsetMin - cell.startOffsetMin;
+  if (age < CELL_GROWTH_MIN) return 'developing';
+  if (cell.lifetimeMin - age < CELL_DECAY_MIN) return 'dissipating';
+  return 'mature';
+}
+
+/**
+ * The mature cell whose core covers the point, if any. The map and the risk notice use the same
+ * definition, so "under a storm core" means the same thing on screen and in the risk card.
+ */
+export function matureCoreAt(
+  scenario: MockScenario,
+  lat: number,
+  lon: number,
+  offsetMin: number
+): MockStormCell | null {
+  for (const cell of scenario.cells) {
+    if (cellStage(cell, offsetMin) !== 'mature' || cell.peakMmHr < 3) continue;
+    const position = cellPosition(cell, offsetMin);
+    if (haversineDistanceKm(lat, lon, position.lat, position.lon) <= cell.radiusKm * CELL_CORE_RADIUS_RATIO) {
+      return cell;
+    }
+  }
+  return null;
+}
+
+/** Closest active cell centre to a point (any stage), with its distance in km. */
+export function nearestActiveCell(
+  scenario: MockScenario,
+  lat: number,
+  lon: number,
+  offsetMin: number
+): { cell: MockStormCell; distanceKm: number } | null {
+  let best: { cell: MockStormCell; distanceKm: number } | null = null;
+  for (const cell of scenario.cells) {
+    if (cell.peakMmHr < 3 || !activeCell(cell, offsetMin)) continue;
+    const position = cellPosition(cell, offsetMin);
+    const distanceKm = haversineDistanceKm(lat, lon, position.lat, position.lon);
+    if (!best || distanceKm < best.distanceKm) best = { cell, distanceKm };
+  }
+  return best;
 }
 
 export function cellPosition(cell: MockStormCell, offsetMin: number): { lat: number; lon: number } {
@@ -161,7 +244,8 @@ export function scenarioLightningStrikes(
       const strikeOffset = offsetMin - ageMin;
       const position = cellPosition(cell, strikeOffset);
       const intensity = cellIntensity(cell, position.lat, position.lon, strikeOffset);
-      const count = Math.min(3, Math.floor(intensity / 11));
+      const maxPerStep = intensity >= 38 ? 5 : 3;
+      const count = Math.min(maxPerStep, Math.floor(intensity / 10));
       const random = seededRandom(hashSeed(`${scenario.name}:${scenario.date}:${cell.id}:${strikeOffset}`));
       for (let index = 0; index < count; index += 1) {
         const angle = random() * Math.PI * 2;
@@ -259,5 +343,104 @@ export function getMockRiskInputs(
     lightningWithin5km15minCount: countWithinKm(scenario, lat, lon, 5, 15, offsetMin),
     pressureDrop3hHpa: Math.round(Math.min(6, peakRain3hMmHr * 0.11) * 10) / 10,
     humidityPct: Math.round(Math.min(96, 70 + rainNowMmHr * 0.65)),
+  };
+}
+
+export const DEFAULT_CONE_KM_PER_30MIN = 2.5;
+export const STORM_TRACK_STEPS_MIN = [30, 60, 90, 120, 180] as const;
+
+export interface StormTrackPoint {
+  stepMin: (typeof STORM_TRACK_STEPS_MIN)[number];
+  lat: number;
+  lon: number;
+  halfWidthKm: number;
+}
+
+export interface StormTrackAndCone {
+  center: { lat: number; lon: number };
+  centreline: Array<[number, number]>;
+  forecastDots: StormTrackPoint[];
+  conePolygon: Array<[number, number]>;
+}
+
+/** Cone half-width r(t) = r0 + k * (t / 30), where k is km of uncertainty growth per 30 min. */
+export function stormConeHalfWidthKm(
+  r0Km: number,
+  elapsedMin: number,
+  coneKmPer30Min: number = DEFAULT_CONE_KM_PER_30MIN
+): number {
+  return Math.max(0.5, r0Km) + Math.max(0, coneKmPer30Min) * (Math.max(0, elapsedMin) / 30);
+}
+
+function offsetLatLonKm(
+  originLat: number,
+  originLon: number,
+  eastKm: number,
+  northKm: number
+): [number, number] {
+  const cosLat = Math.max(0.2, Math.cos((originLat * Math.PI) / 180));
+  return [originLat + northKm / 111, originLon + eastKm / (111 * cosLat)];
+}
+
+/**
+ * Projects a storm cell's centreline at +30/60/90/120/180 min from its velocity vector
+ * and builds the cone-of-uncertainty polygon by offsetting perpendicular to the heading.
+ */
+export function buildStormTrackAndCone(
+  cell: MockStormCell,
+  offsetMin: number,
+  coneKmPer30Min: number = DEFAULT_CONE_KM_PER_30MIN
+): StormTrackAndCone {
+  const center = cellPosition(cell, offsetMin);
+  const speed = Math.hypot(cell.vxKmH, cell.vyKmH);
+  const ux = speed > 1e-6 ? cell.vxKmH / speed : 1;
+  const uy = speed > 1e-6 ? cell.vyKmH / speed : 0;
+  // Perpendicular left/right normals in local (eastKm, northKm) plane
+  const leftX = -uy;
+  const leftY = ux;
+  const headingRad = Math.atan2(uy, ux);
+  const r0Km = Math.max(1.5, cell.radiusKm * CELL_CORE_RADIUS_RATIO);
+
+  const allSteps = [0, ...STORM_TRACK_STEPS_MIN];
+  const samples = allSteps.map((stepMin) => {
+    const pos = cellPosition(cell, offsetMin + stepMin);
+    const halfWidthKm = stormConeHalfWidthKm(r0Km, stepMin, coneKmPer30Min);
+    return { stepMin, lat: pos.lat, lon: pos.lon, halfWidthKm };
+  });
+
+  const leftEdge = samples.map((sample) =>
+    offsetLatLonKm(sample.lat, sample.lon, leftX * sample.halfWidthKm, leftY * sample.halfWidthKm)
+  );
+  const rightEdge = [...samples].reverse().map((sample) =>
+    offsetLatLonKm(sample.lat, sample.lon, -leftX * sample.halfWidthKm, -leftY * sample.halfWidthKm)
+  );
+
+  const last = samples[samples.length - 1]!;
+  const frontArc: Array<[number, number]> = [1, 2, 3, 4].map((index) => {
+    const theta = headingRad + Math.PI / 2 - (index * Math.PI) / 5;
+    return offsetLatLonKm(
+      last.lat,
+      last.lon,
+      Math.cos(theta) * last.halfWidthKm,
+      Math.sin(theta) * last.halfWidthKm
+    );
+  });
+
+  const first = samples[0]!;
+  const backArc: Array<[number, number]> = [1, 2, 3].map((index) => {
+    const theta = headingRad - Math.PI / 2 - (index * Math.PI) / 4;
+    return offsetLatLonKm(
+      first.lat,
+      first.lon,
+      Math.cos(theta) * first.halfWidthKm,
+      Math.sin(theta) * first.halfWidthKm
+    );
+  });
+
+  return {
+    center,
+    centreline: samples.map((sample) => [sample.lat, sample.lon]),
+    forecastDots: samples.slice(1) as StormTrackPoint[],
+    conePolygon: [...leftEdge, ...frontArc, ...rightEdge, ...backArc],
   };
 }

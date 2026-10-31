@@ -41,6 +41,7 @@ export interface ApiRouterDeps {
   riskDataService: RiskDataService;
   demoMode: boolean;
   dataMode: DataMode;
+  stormConeKmPer30Min?: number;
   /** Lets only /reverse-geocode reach the geocoder in mock mode; weather providers stay unreachable. */
   allowGeocodingInMock?: boolean;
   environmentDataService: EnvironmentDataService;
@@ -125,7 +126,11 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
   };
 
   router.get('/runtime-config', (_req: Request, res: Response) => {
-    res.status(200).json({ demoMode: deps.demoMode, dataMode: deps.dataMode });
+    res.status(200).json({
+      demoMode: deps.demoMode,
+      dataMode: deps.dataMode,
+      stormConeKmPer30Min: deps.stormConeKmPer30Min ?? 2.5,
+    });
   });
 
   router.get('/environment', async (req: Request, res: Response) => {
