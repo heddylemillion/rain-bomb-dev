@@ -755,6 +755,15 @@ function ExposeMap({ onMapReady }: { onMapReady: (map: L.Map) => void }): React.
   return null;
 }
 
+function SoilPane(): null {
+  const map = useMap();
+  useMemo(() => {
+    const pane = map.getPane('soilPane') ?? map.createPane('soilPane');
+    pane.style.zIndex = '280';
+  }, [map]);
+  return null;
+}
+
 function FollowSelection({
   communities,
   selectedCommunityId,
@@ -938,6 +947,7 @@ export function MapCanvas({
         maxZoom={19}
       >
         <ExposeMap onMapReady={onMapReady} />
+        <SoilPane />
         <FollowSelection communities={communities} selectedCommunityId={selectedCommunityId} />
         <MapClickHandler onMapPick={pickMapBackgroundPoint} />
         <TileLayer
@@ -997,6 +1007,7 @@ export function MapCanvas({
           <GeoJSON
             key={`soil-layer-${language}`}
             data={soilLayer}
+            pane="soilPane"
             style={(feature) => soilPathStyle(feature, feature === selectedSoilFeature)}
             onEachFeature={(feature, layer) => {
               bindSoilTooltip(feature, layer, language, t);

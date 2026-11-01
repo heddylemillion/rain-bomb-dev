@@ -34,7 +34,7 @@ export function soilPathStyle(
       fillColor: '#d8c6b5',
       weight: 4,
       opacity: 1,
-      fillOpacity: 0.62,
+      fillOpacity: 0.25,
     };
   }
   const style = SOIL_TEXTURE_STYLES[feature?.properties.textureTh ?? ''] ?? SOIL_TEXTURE_STYLES.water;
@@ -42,6 +42,6 @@ export function soilPathStyle(
     ...style,
     weight: 2,
     opacity: 0.9,
-    fillOpacity: 0.38,
+    fillOpacity: 0.25,
   };
 }
