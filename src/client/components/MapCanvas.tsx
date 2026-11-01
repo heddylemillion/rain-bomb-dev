@@ -1,4 +1,4 @@
-import { Component, Fragment, useEffect, useMemo, useState } from 'react';
+import { Component, Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ErrorInfo, PropsWithChildren } from 'react';
 import L from 'leaflet';
 import {
@@ -819,6 +819,8 @@ export function MapCanvas({
   showSoilLayer,
 }: MapCanvasProps): React.ReactNode {
   const { t, language } = useTranslation();
+  const selectedSoilKeyRef = useRef(selectedSoilKey);
+  selectedSoilKeyRef.current = selectedSoilKey;
   const reduceMotion = useMemo(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     []
@@ -986,6 +988,12 @@ export function MapCanvas({
             onEachFeature={(feature, layer) => {
               bindSoilTooltip(feature, layer, language, t);
               if (!(layer instanceof L.Path)) return;
+              layer.on('mouseover', () => {
+                layer.setStyle({ color: '#ffffff', weight: 4, opacity: 1 });
+              });
+              layer.on('mouseout', () => {
+                layer.setStyle(soilPathStyle(feature, selectedSoilKeyRef.current));
+              });
               layer.on('click', (event: L.LeafletMouseEvent) => {
                 L.DomEvent.stopPropagation(event.originalEvent);
                 onMapPick({ lat: event.latlng.lat, lon: event.latlng.lng });
