@@ -40,6 +40,7 @@ import {
 import { useTranslation, type MessageKey } from '../i18n.js';
 import { LEVEL_KEYS, LEVEL_SYMBOL, worstLevel, type RiskLevel } from '../lib/risk.js';
 import { translateSoilName, translateSoilValue } from '../lib/soilLocalization.js';
+import { soilPathStyle } from '../lib/soilStyle.js';
 
 export interface UserPosition {
   lat: number;
@@ -75,32 +76,6 @@ const BLANK_TILE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 const OVERLAY_Z: Record<OverlayLayerId, number> = { radar: 300, storm: 310, lightning: 320 };
-
-const SOIL_TEXTURE_STYLES: Record<string, L.PathOptions> = {
-  'ดินเหนียว': { color: '#8f4e3b', fillColor: '#c98164' },
-  'ดินเหนียวปนทรายแป้ง': { color: '#8a6a2d', fillColor: '#d4a84e', dashArray: '7 4' },
-  'ดินร่วนปนทรายแป้ง': { color: '#356d62', fillColor: '#6fa99a', dashArray: '2 4' },
-  water: { color: '#356c8a', fillColor: '#78b6d2', dashArray: '1 4' },
-};
-
-function soilPathStyle(feature: { properties: SoilInfo } | undefined, selected = false): L.PathOptions {
-  if (selected) {
-    return {
-      color: '#ffffff',
-      fillColor: '#22c55e',
-      weight: 3,
-      opacity: 1,
-      fillOpacity: 0.62,
-    };
-  }
-  const style = SOIL_TEXTURE_STYLES[feature?.properties.textureTh ?? ''] ?? SOIL_TEXTURE_STYLES.water;
-  return {
-    ...style,
-    weight: 2,
-    opacity: 0.9,
-    fillOpacity: 0.38,
-  };
-}
 
 function bindSoilTooltip(
   feature: { properties: SoilInfo },
