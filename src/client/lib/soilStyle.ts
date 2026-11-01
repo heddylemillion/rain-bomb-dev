@@ -24,11 +24,18 @@ export const SOIL_LEGEND_ITEMS: ReadonlyArray<{ label: MessageKey; texture: stri
   { label: 'soilLegendWater', texture: 'water' },
 ];
 
+export function soilFeatureKey(
+  soil: Pick<SoilInfo, 'soilCode' | 'soilGroup' | 'amphoeTh'>
+): string {
+  return JSON.stringify([soil.soilCode, soil.soilGroup, soil.amphoeTh]);
+}
+
 export function soilPathStyle(
   feature: { properties: SoilInfo } | undefined,
-  selected = false
+  selectedSoilKey: string | null = null
 ): L.PathOptions {
-  if (selected) {
+  // Matching by series, group, and district can intentionally select multiple adjacent polygons.
+  if (feature && selectedSoilKey !== null && soilFeatureKey(feature.properties) === selectedSoilKey) {
     return {
       color: '#ffffff',
       fillColor: '#d8c6b5',

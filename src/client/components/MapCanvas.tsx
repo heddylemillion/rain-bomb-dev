@@ -1,4 +1,4 @@
-import { Component, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, Fragment, useEffect, useMemo, useState } from 'react';
 import type { ErrorInfo, PropsWithChildren } from 'react';
 import L from 'leaflet';
 import {
@@ -56,6 +56,7 @@ interface MapCanvasProps {
   onMapPick: (point: UserPosition) => void;
   overlays: ReadonlySet<OverlayLayerId>;
   soilLayer: SoilFeatureCollection | null;
+  selectedSoilKey: string | null;
   showSoilLayer: boolean;
   radarHours: number;
   mockMode: boolean;
@@ -814,38 +815,10 @@ export function MapCanvas({
   onBaseTilesFailed,
   baseTileRetry,
   soilLayer,
+  selectedSoilKey,
   showSoilLayer,
 }: MapCanvasProps): React.ReactNode {
   const { t, language } = useTranslation();
-  const [selectedSoilFeature, setSelectedSoilFeature] = useState<object | null>(null);
-  const selectedSoilFeatureRef = useRef<object | null>(selectedSoilFeature);
-  const selectedSoilLayerRef = useRef<L.Path | null>(null);
-  const selectedSoilBaseStyleRef = useRef<L.PathOptions | null>(null);
-  const soilFeatureClickRef = useRef(false);
-  selectedSoilFeatureRef.current = selectedSoilFeature;
-  const pickMapPoint = useCallback(
-    (point: UserPosition): void => {
-      if (selectedSoilLayerRef.current && selectedSoilBaseStyleRef.current) {
-        selectedSoilLayerRef.current.setStyle(selectedSoilBaseStyleRef.current);
-      }
-      selectedSoilLayerRef.current = null;
-      selectedSoilBaseStyleRef.current = null;
-      selectedSoilFeatureRef.current = null;
-      setSelectedSoilFeature(null);
-      onMapPick(point);
-    },
-    [onMapPick]
-  );
-  const pickMapBackgroundPoint = useCallback(
-    (point: UserPosition): void => {
-      if (soilFeatureClickRef.current) {
-        soilFeatureClickRef.current = false;
-        return;
-      }
-      pickMapPoint(point);
-    },
-    [pickMapPoint]
-  );
   const reduceMotion = useMemo(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     []
@@ -949,7 +922,7 @@ export function MapCanvas({
         <ExposeMap onMapReady={onMapReady} />
         <SoilPane />
         <FollowSelection communities={communities} selectedCommunityId={selectedCommunityId} />
-        <MapClickHandler onMapPick={pickMapBackgroundPoint} />
+        <MapClickHandler onMapPick={onMapPick} />
         <TileLayer
           key={baseTileRetry}
           url={import.meta.env.VITE_BASE_TILE_URL || '/api/map/tiles/{z}/{x}/{y}.png'}
@@ -1008,38 +981,14 @@ export function MapCanvas({
             key={`soil-layer-${language}`}
             data={soilLayer}
             pane="soilPane"
-            style={(feature) => soilPathStyle(feature, feature === selectedSoilFeature)}
+            bubblingMouseEvents={false}
+            style={(feature) => soilPathStyle(feature, selectedSoilKey)}
             onEachFeature={(feature, layer) => {
               bindSoilTooltip(feature, layer, language, t);
               if (!(layer instanceof L.Path)) return;
-              layer.on({
-                click: (event: L.LeafletMouseEvent) => {
-                  L.DomEvent.stopPropagation(event.originalEvent);
-                  soilFeatureClickRef.current = true;
-                  window.setTimeout(() => {
-                    soilFeatureClickRef.current = false;
-                  }, 0);
-                  if (selectedSoilLayerRef.current && selectedSoilLayerRef.current !== layer) {
-                    const previousStyle = selectedSoilBaseStyleRef.current;
-                    if (previousStyle) {
-                      selectedSoilLayerRef.current.setStyle(previousStyle);
-                    }
-                  }
-                  selectedSoilLayerRef.current = layer;
-                  selectedSoilBaseStyleRef.current = soilPathStyle(feature);
-                  selectedSoilFeatureRef.current = feature;
-                  layer.setStyle(soilPathStyle(feature, true));
-                  setSelectedSoilFeature(feature);
-                  onMapPick({ lat: event.latlng.lat, lon: event.latlng.lng });
-                },
-                mouseover: () => {
-                  if (selectedSoilFeatureRef.current !== feature) {
-                    layer.setStyle({ color: '#ffffff', weight: 3, opacity: 1 });
-                  }
-                },
-                mouseout: () => {
-                  layer.setStyle(soilPathStyle(feature, selectedSoilFeatureRef.current === feature));
-                },
+              layer.on('click', (event: L.LeafletMouseEvent) => {
+                L.DomEvent.stopPropagation(event.originalEvent);
+                onMapPick({ lat: event.latlng.lat, lon: event.latlng.lng });
               });
             }}
           />
@@ -1049,7 +998,7 @@ export function MapCanvas({
             items={items}
             selectedCommunityId={selectedCommunityId}
             onSelectCommunity={onSelectCommunity}
-            onMapPick={pickMapPoint}
+            onMapPick={onMapPick}
           />
         )}
         {userPosition &&
@@ -1063,7 +1012,7 @@ export function MapCanvas({
               eventHandlers={{
                 dragend: (event) => {
                   const position = (event.target as L.Marker).getLatLng();
-                  pickMapPoint({ lat: position.lat, lon: position.lng });
+                  onMapPick({ lat: position.lat, lon: position.lng });
                 },
               }}
             />

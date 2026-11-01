@@ -18,7 +18,7 @@ import {
   type SoilResponse,
 } from '../../shared/contracts.js';
 import { fetchCapabilities } from '../api/capabilities.js';
-import { fetchSoil, fetchSoilLayer } from '../api/soil.js';
+import { fetchSoil, fetchSoilLayer, roundSoilCoordinates } from '../api/soil.js';
 import {
   fetchAreaEnvironment,
   fetchCommunities,
@@ -32,6 +32,7 @@ import { MapControls, RadarSlider } from '../components/MapOverlays.js';
 import { SideBar, type SideLayerId, type SideLayerItem } from '../components/SideBar.js';
 import { StatusCard } from '../components/StatusCard.js';
 import { useTranslation } from '../i18n.js';
+import { soilFeatureKey } from '../lib/soilStyle.js';
 import { writeStorage } from '../lib/storage.js';
 
 const LOCATION_CHOICE_KEY = 'rain-burst-location-choice';
@@ -236,9 +237,13 @@ export function OverviewPage({
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
+  const soilCoordinates = useMemo(
+    () => roundSoilCoordinates(place.lat, place.lon),
+    [place.lat, place.lon]
+  );
   const soilQuery = useQuery<SoilResponse>({
-    queryKey: ['soil', place.lat, place.lon],
-    queryFn: ({ signal }) => fetchSoil(place.lat, place.lon, signal),
+    queryKey: ['soil', soilCoordinates.lat, soilCoordinates.lon],
+    queryFn: ({ signal }) => fetchSoil(soilCoordinates.lat, soilCoordinates.lon, signal),
     enabled: activeOverlays.has('soil'),
     staleTime: 24 * 60 * 60 * 1000,
     retry: 1,
@@ -499,6 +504,7 @@ export function OverviewPage({
         onMapPick={handleMapPick}
         overlays={effectiveOverlays}
         soilLayer={soilLayerQuery.data ?? null}
+        selectedSoilKey={soilQuery.data?.soil ? soilFeatureKey(soilQuery.data.soil) : null}
         showSoilLayer={activeOverlays.has('soil')}
         radarHours={radarHours}
         mockMode={mockMode}
