@@ -14,7 +14,7 @@ import type { OverlayLayerId } from '../../shared/contracts.js';
 import type { MockScenarioName } from '../../shared/mockWeatherScenario.js';
 import { useTranslation } from '../i18n.js';
 import { LEVEL_SYMBOL } from '../lib/risk.js';
-import { SOIL_LEGEND_ITEMS, SOIL_TEXTURE_STYLES } from '../lib/soilStyle.js';
+import { SOIL_LEGEND_ITEMS, SOIL_TEXTURE_PALETTE } from '../lib/soilStyle.js';
 import { readStorage, writeStorage } from '../lib/storage.js';
 import { GlassTooltip, useAccessibleTooltip } from './GlassTooltip.js';
 
@@ -407,7 +407,8 @@ export function SideBar({
           <h2 className="text-xs font-semibold">{t('soilLegendTitle')}</h2>
           <ul className="flex flex-col gap-1">
             {SOIL_LEGEND_ITEMS.map((item) => {
-              const style = SOIL_TEXTURE_STYLES[item.texture] ?? SOIL_TEXTURE_STYLES.water;
+              const style =
+                SOIL_TEXTURE_PALETTE[item.texture] ?? SOIL_TEXTURE_PALETTE.water;
               return (
                 <li key={item.label} className="flex items-start gap-2">
                   <span
@@ -416,7 +417,12 @@ export function SideBar({
                     style={{
                       backgroundColor: style.fillColor,
                       borderColor: style.color,
-                      borderStyle: style.dashArray ? 'dashed' : 'solid',
+                      borderStyle:
+                        style.dashArray === '7 4'
+                          ? 'dashed'
+                          : style.dashArray
+                            ? 'dotted'
+                            : 'solid',
                     }}
                   />
                   <span>{t(item.label)}</span>
