@@ -233,6 +233,9 @@ export function StatusCard({
         : level === 'LOW'
           ? 'risk-pill risk-pill-low'
           : 'risk-pill risk-pill-neutral';
+  const soilSummary = soil?.soil
+    ? `${t('soilSummaryLabel')}${language === 'en' ? ' ' : ''}${translateSoilName(soil.soil, language, t)} · ${translateSoilValue(soil.soil.textureTh, language, t)}`
+    : t('soilInfoTitle');
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 1024px)');
@@ -535,9 +538,11 @@ export function StatusCard({
 
         {soilEnabled && (
           <details className="glass-subcard rounded-xl px-3 py-1" aria-busy={soilLoading}>
-              <summary className="min-h-[44px] cursor-pointer flex items-center justify-between text-xs font-semibold text-slate-100 select-none">
-                <span>{t('soilInfoTitle')}</span>
-              </summary>
+            <summary className="min-h-[44px] cursor-pointer flex items-center justify-between text-xs font-semibold text-slate-100 select-none">
+              <span className="min-w-0 flex-1 whitespace-normal leading-snug">
+                {soilSummary}
+              </span>
+            </summary>
               <div className="pb-2.5 pt-1 flex flex-col gap-1.5 text-[0.7rem] text-slate-200 border-t border-white/10">
                 {soilLoading && <p>{t('soilLoading')}</p>}
                 {soilLayerLoading && <p>{t('soilLayerLoading')}</p>}
