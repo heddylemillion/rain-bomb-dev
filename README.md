@@ -92,6 +92,24 @@ Thai flood events. Site-specific elevation, soil, drainage, and canal factors
 are not configured and are not inferred. When fewer than 40% of factor weights
 are available, the API returns `INSUFFICIENT` rather than a score.
 
+### Why a result may say "Low"
+
+คะแนน 0–100 มาจากปัจจัยอากาศ 8 ค่า ไม่ใช่ข้อมูลดินหรือความสูง: ระบบปรับแต่ละค่า
+เป็นสัดส่วน 0–1 ตามช่วงใน `config/risk.json` แล้วคูณน้ำหนักและรวมกัน
+(ฝนรายชั่วโมงสูงสุดใน 3 ชั่วโมงมีน้ำหนัก 25%; ฝนปัจจุบัน 10%;
+ฝนสะสม 3/24 ชั่วโมงอย่างละ 15%/10%; โอกาสฝน 10%; ฟ้าผ่า 15%;
+ความกดอากาศ 10%; ความชื้น 5%). คะแนนต่ำกว่า 35 คือ **ต่ำ**, 35–64 คือ
+**ปานกลาง**, และตั้งแต่ 65 คือ **สูง**. ฟ้าผ่าใกล้จุดหรือประกาศเตือนอาจยกระดับ
+ผลลัพธ์ได้; หากข้อมูลที่ใช้ได้มีน้ำหนักรวมต่ำกว่า 40% จะแสดงว่าไม่เพียงพอ
+แทนการสร้างคะแนน.
+
+ตัวอย่างจากการทดสอบโหมดจำลอง `moderate` ที่จุด 14.0746, 100.7893: ฝนปัจจุบัน
+10.2 มม./ชม. และฝนรายชั่วโมงสูงสุด 10.2 มม./ชม. ให้คะแนนถ่วงน้ำหนักประมาณ 2.9
+และ 2.9; ฝนสะสม 3 ชั่วโมง 9.8 มม. และ 24 ชั่วโมง 11.5 มม. ต่ำกว่าช่วงเริ่มต้น
+จึงได้ 0; โอกาสฝน 38% ได้ประมาณ 1.3, ฟ้าผ่า 2 ครั้งได้ 0.8, ความกดอากาศลดลง
+1.1 hPa ได้ 0.3 และความชื้น 77% ได้ 1.4. รวมประมาณ 10 จึงต่ำกว่าเกณฑ์ 35.
+นี่เป็นเพียงตัวอย่างข้อมูลจำลอง ไม่ใช่สภาพอากาศจริงหรือประกาศเตือนภัย.
+
 `GET /api/environment?lat=...&lon=...` returns approximate Copernicus DEM GLO-90
 elevation and Marine forecast context. Elevation is static and is not flood
 depth. Marine data is modeled forecast data from an explicit offshore reference
