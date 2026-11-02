@@ -1,9 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import cors from 'cors';
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import { InMemoryWeatherCache, type WeatherCacheStore } from './cache/cacheStore.js';
-import { appConfig, type AppConfig } from './config.js';
+import { appConfig, ROOT_DIR, type AppConfig } from './config.js';
 import { logger, redactSecretsInText } from './logger.js';
 import { createApiRouter } from './routes/api.js';
 import { WeatherService } from './services/weatherService.js';
@@ -131,6 +133,15 @@ export function createApp(options: CreateAppOptions = {}): Express {
       }),
     })
   );
+
+  // Serve the built frontend (dist/) in production so one service hosts UI + API
+  const distDir = path.join(ROOT_DIR, 'dist');
+  if (fs.existsSync(path.join(distDir, 'index.html'))) {
+    app.use(express.static(distDir));
+    app.get(/^\/(?!api\/).*/, (_req: Request, res: Response) => {
+      res.sendFile(path.join(distDir, 'index.html'));
+    });
+  }
 
   // 404 handler
   app.use((_req: Request, res: Response) => {
