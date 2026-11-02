@@ -177,7 +177,7 @@ async function verifyLayoutGeometry(
       };
 
       const entries: Array<[string, HTMLElement | null]> = [
-        ['brand-chip', pickVisible('[aria-label^="Rain Burst"]')],
+        ['brand-chip', pickVisible('[aria-label^="RAINBOMB"]')],
         ['search-pill', pickVisible('section[aria-label*="ค้นหา"], section[aria-label*="Search"]')],
         ['data-mode-pill', pickVisible('[data-testid="data-mode-pill"]')],
         ['display-aa-btn', pickVisible('#display-settings-trigger')],

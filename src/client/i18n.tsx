@@ -13,7 +13,7 @@ export type MessageKey = keyof typeof messages.th;
 
 const messages = {
   th: {
-    brandTitle: 'Rain Burst',
+    brandTitle: 'RAINBOMB',
     brandSubtitle: 'เฝ้าระวังฝนและน้ำท่วม',
     overview: 'ภาพรวม',
     forecast: 'พยากรณ์',
@@ -98,7 +98,7 @@ const messages = {
     retry: 'ลองอีกครั้ง',
     mapAttribution: 'แผนที่ © OpenStreetMap contributors',
     weatherAttribution: 'ข้อมูลเรดาร์ © Xweather',
-    mockWeatherAttribution: 'เรดาร์ ฟ้าผ่า และพายุจำลองจาก Rain Burst · ไม่ใช่ข้อมูลสังเกตการณ์',
+    mockWeatherAttribution: 'เรดาร์ ฟ้าผ่า และพายุจำลองจาก RAINBOMB · ไม่ใช่ข้อมูลสังเกตการณ์',
     mapUnavailable: 'แผนที่ชุมชนยังไม่พร้อมใช้งาน',
     mapRiskLoading: 'กำลังโหลดระดับความเสี่ยงของชุมชน',
     mapTilesError: 'โหลดภาพแผนที่พื้นหลังไม่สำเร็จ แต่ยังแสดงตำแหน่งชุมชนได้',
@@ -403,7 +403,7 @@ const messages = {
     defaultDemoAreaName: 'เขตพระนคร กรุงเทพฯ',
   },
   en: {
-    brandTitle: 'Rain Burst',
+    brandTitle: 'RAINBOMB',
     brandSubtitle: 'Rain and flood monitoring',
     overview: 'Overview',
     forecast: 'Forecast',
@@ -488,7 +488,7 @@ const messages = {
     retry: 'Try again',
     mapAttribution: 'Map © OpenStreetMap contributors',
     weatherAttribution: 'Radar data © Xweather',
-    mockWeatherAttribution: 'Simulated radar, lightning, and storms from Rain Burst · not observations',
+    mockWeatherAttribution: 'Simulated radar, lightning, and storms from RAINBOMB · not observations',
     mapUnavailable: 'Community map is unavailable',
     mapRiskLoading: 'Loading community risk levels',
     mapTilesError: 'Could not load the basemap; community locations are still shown',

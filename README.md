@@ -1,6 +1,6 @@
-# Rain Burst
+# RAINBOMB
 
-Rain Burst is an accessible, Thai-first decision-support map for rainfall and
+RAINBOMB is an accessible, Thai-first decision-support map for rainfall and
 flood risk. It is not an official warning service.
 
 ## Run the API and dashboard
