@@ -1,257 +1,389 @@
 import { Router, type Request, type Response } from 'express';
 import NodeCache from 'node-cache';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import { z } from 'zod';
-import type { WeatherCacheStore } from '../cache/cacheStore.js';
 import { logger, redactSecretsInText } from '../logger.js';
-import { DECISION_SUPPORT_DISCLAIMER_TH } from '../normalizers/weatherNormalizer.js';
-import {
-  checkXweatherCapabilities,
-  getErrorCapabilities,
-} from '../services/capabilityService.js';
 import { findCommunityById, loadCommunities } from '../services/communityService.js';
-import type { XweatherClient } from '../services/xweatherClient.js';
 import { RiskDataService } from '../services/riskDataService.js';
-import type { WeatherService } from '../services/weatherService.js';
-import { XweatherClientError } from '../services/xweatherClient.js';
 import { getSoilLayer, lookupSoil } from '../services/soilService.js';
-import type { CapabilitiesResponse } from '../../shared/contracts.js';
-import { CAPABILITY_IDS } from '../../shared/contracts.js';
-import type { MockScenarioName } from '../../shared/mockWeatherScenario.js';
-import {
-  RasterTileLayerSchema,
-  RadarOffsetSchema,
-  TileCoordinateSchema,
-} from '../services/overlayLayers.js';
-import type { CommunityWeatherBundle } from '../types/weather.js';
+import type { DataMode, EnvironmentDataService } from '../services/environmentDataService.js';
 import type { GeocodingProvider } from '../services/geocodingProvider.js';
-import type { EnvironmentDataService, DataMode } from '../services/environmentDataService.js';
+import type {
+  LightningProvider,
+  RadarProvider,
+  StormTrackProvider,
+} from '../services/weatherProviders.js';
+import { ProviderStatusResponseSchema } from '../../shared/providerContracts.js';
+import type { MockScenarioName } from '../../shared/mockWeatherScenario.js';
 
-const CommunityIdParamSchema = z
-  .string()
-  .min(1)
-  .max(80)
-  .regex(/^[a-z0-9-]+$/i, 'Invalid communityId format');
-
-export interface ApiRouterDeps {
-  weatherService: WeatherService;
-  xweatherClient: XweatherClient;
-  cacheStore: WeatherCacheStore<CommunityWeatherBundle>;
-  hasXweatherCredentials: boolean;
-  riskDataService: RiskDataService;
-  demoMode: boolean;
-  dataMode: DataMode;
-  stormConeKmPer30Min?: number;
-  /** Lets only /reverse-geocode reach the geocoder in mock mode; weather providers stay unreachable. */
-  allowGeocodingInMock?: boolean;
-  environmentDataService: EnvironmentDataService;
-  geocodingProvider: GeocodingProvider;
-}
-
+const CommunityIdParamSchema = z.string().min(1).max(80).regex(/^[a-z0-9-]+$/i);
 export const PointQuerySchema = z.object({
   lat: z.coerce.number().finite().min(5.5).max(20.5),
   lon: z.coerce.number().finite().min(97).max(106),
 });
-
-export const RiskQuerySchema = PointQuerySchema.extend({
+const RiskQuerySchema = PointQuerySchema.extend({
   scenario: z.enum(['calm', 'moderate', 'burst']).optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   offsetMin: z.coerce.number().int().min(-180).max(180).multipleOf(10).optional(),
 });
-
 export const GeocodeQuerySchema = z.object({
   q: z.string().trim().min(3).max(120),
   lang: z.enum(['th', 'en']).default('th'),
 });
+const TileCoordinateSchema = z.object({
+  z: z.coerce.number().int().min(0).max(22),
+  x: z.coerce.number().int().nonnegative(),
+  y: z.coerce.number().int().nonnegative(),
+});
+
+export interface ApiRouterDeps {
+  riskDataService: RiskDataService;
+  dataMode: DataMode;
+  stormConeKmPer30Min: number;
+  environmentDataService: EnvironmentDataService;
+  geocodingProvider: GeocodingProvider;
+  radarProvider: RadarProvider;
+  lightningProvider: LightningProvider;
+  stormTrackProvider: StormTrackProvider;
+}
 
 export function createApiRouter(deps: ApiRouterDeps): Router {
   const router = Router();
-  const rasterCache = new NodeCache({ stdTTL: 300, checkperiod: 60, useClones: false });
-  const transparentTile = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-    'base64'
-  );
-  let capabilityCache: { response: CapabilitiesResponse; expiresAt: number } | null = null;
-  let capabilityRequest: Promise<CapabilitiesResponse> | null = null;
+  const radarTileCache = new NodeCache({ stdTTL: 300, checkperiod: 60, useClones: false });
+  const requestTimes: Record<'radar' | 'lightning' | 'storm-track', number[]> = {
+    radar: [],
+    lightning: [],
+    'storm-track': [],
+  };
+  const lastSuccess: Record<'radar' | 'lightning' | 'storm-track', string | null> = {
+    radar: null,
+    lightning: null,
+    'storm-track': null,
+  };
+  let radarCoverage: 'available' | 'none' | 'unknown' | 'not-tested' = 'not-tested';
+  let lightningCoverage: 'available' | 'none' | 'unknown' | 'not-tested' = 'not-tested';
+  let stormCoverage: 'available' | 'none' | 'unknown' | 'not-tested' = 'not-tested';
 
-  const loadCapabilities = async (): Promise<CapabilitiesResponse> => {
-    if (capabilityCache && capabilityCache.expiresAt > Date.now()) return capabilityCache.response;
-    if (capabilityRequest) return capabilityRequest;
-    const request = (async () => {
-      if (deps.dataMode === 'mock') {
-        const checkedAt = new Date().toISOString();
-        const mockIds = new Set(['risk-summary', 'radar-layer', 'lightning', 'tropical-cyclones']);
-        return {
-          capabilities: CAPABILITY_IDS.map((id) => ({
-            id,
-            available: mockIds.has(id),
-            reason: mockIds.has(id) ? 'mock' as const : 'error' as const,
-            ...(mockIds.has(id) ? { mock: true } : {}),
-            checkedAt,
-          })),
-          checkedAt,
-          isMock: true,
-          demoMode: deps.demoMode,
-        };
-      }
-      if (!deps.xweatherClient.hasCredentials()) {
-        return getErrorCapabilities(new Date().toISOString(), deps.demoMode);
-      }
-      try {
-        const [configuredPoint] = await loadCommunities();
-        const probePoint = configuredPoint ?? {
-          id: 'thailand-probe',
-          name_th: 'ตำแหน่งตรวจสอบพื้นที่',
-          name_en: 'Coverage probe point',
-          lat: 14.06,
-          lon: 100.62,
-        };
-        return await checkXweatherCapabilities(deps.xweatherClient, probePoint, deps.demoMode);
-      } catch (error: unknown) {
-        const safeMessage = redactSecretsInText(
-          error instanceof Error ? error.message : String(error)
-        );
-        logger.error({ err: safeMessage }, 'Failed to check API capabilities');
-        return getErrorCapabilities(new Date().toISOString(), deps.demoMode);
-      }
-    })();
-    capabilityRequest = request;
-    try {
-      const response = await request;
-      capabilityCache = { response, expiresAt: Date.now() + 5 * 60 * 1000 };
-      return response;
-    } finally {
-      if (capabilityRequest === request) capabilityRequest = null;
-    }
+  const recordRequest = (provider: keyof typeof requestTimes): number => {
+    const now = Date.now();
+    const recent = requestTimes[provider].filter((time) => now - time < 60_000);
+    recent.push(now);
+    requestTimes[provider] = recent;
+    return recent.length;
+  };
+  const requestCount = (provider: keyof typeof requestTimes): number => {
+    const now = Date.now();
+    requestTimes[provider] = requestTimes[provider].filter((time) => now - time < 60_000);
+    return requestTimes[provider].length;
   };
 
   router.get('/runtime-config', (_req: Request, res: Response) => {
     res.status(200).json({
-      demoMode: deps.demoMode,
       dataMode: deps.dataMode,
-      stormConeKmPer30Min: deps.stormConeKmPer30Min ?? 2.5,
+      stormConeKmPer30Min: deps.stormConeKmPer30Min,
+      radarProvider: { id: deps.radarProvider.id, mode: deps.radarProvider.mode },
+      lightningProvider: { id: deps.lightningProvider.id, mode: deps.lightningProvider.mode, display: 'counts-only' },
+      stormTrackProvider: { id: deps.stormTrackProvider.id, mode: deps.stormTrackProvider.mode },
     });
   });
 
-  router.get('/environment', async (req: Request, res: Response) => {
-    const parsedPoint = PointQuerySchema.safeParse(req.query);
-    const parsedCommunity = z.string().max(80).optional().safeParse(req.query['communityId']);
-    if (!parsedPoint.success || !parsedCommunity.success) {
-      res.status(400).json({
-        error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' },
+  router.get('/providers/status', (_req: Request, res: Response) => {
+    res.status(200).json(ProviderStatusResponseSchema.parse({
+      providers: [
+        {
+          id: 'radar',
+          provider: deps.radarProvider.id,
+          mode: deps.radarProvider.mode,
+          coverage: radarCoverage,
+          lastSuccess: lastSuccess.radar,
+          quotaUsed: requestCount('radar'),
+          quotaLimit: 100,
+          attribution: deps.radarProvider.attribution,
+          attributionUrl: deps.radarProvider.attributionUrl,
+          licenceLimits: deps.radarProvider.id === 'rainviewer'
+            ? 'Personal/community use only; historical frames, max zoom 7, no nowcast or satellite.'
+            : deps.radarProvider.id === 'tmd'
+              ? 'Feed and redistribution terms pending written TMD approval.'
+              : 'Synthetic demonstration only; not observed radar data.',
+        },
+        {
+          id: 'lightning',
+          provider: deps.lightningProvider.id,
+          mode: deps.lightningProvider.mode,
+          coverage: lightningCoverage,
+          lastSuccess: lastSuccess.lightning,
+          quotaUsed: requestCount('lightning'),
+          quotaLimit: deps.lightningProvider.id === 'none' ? null : 100,
+          attribution: deps.lightningProvider.attribution,
+          attributionUrl: deps.lightningProvider.attributionUrl,
+          licenceLimits: deps.lightningProvider.licenceLimits,
+        },
+        {
+          id: 'storm-track',
+          provider: deps.stormTrackProvider.id,
+          mode: deps.stormTrackProvider.mode,
+          coverage: stormCoverage,
+          lastSuccess: lastSuccess['storm-track'],
+          quotaUsed: requestCount('storm-track'),
+          quotaLimit: null,
+          attribution: deps.stormTrackProvider.attribution,
+          attributionUrl: deps.stormTrackProvider.attributionUrl,
+          licenceLimits: deps.stormTrackProvider.licenceLimits,
+        },
+      ],
+      checkedAt: new Date().toISOString(),
+    }));
+  });
+
+  router.get('/radar/frames', async (req: Request, res: Response) => {
+    const point = PointQuerySchema.safeParse(req.query);
+    if (!point.success) {
+      res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
+      return;
+    }
+    try {
+      const result = await deps.radarProvider.getFrames(point.data.lat, point.data.lon);
+      radarCoverage = result.coverage;
+      if (result.coverage === 'available') lastSuccess.radar = new Date().toISOString();
+      res.status(200).json({
+        ...result,
+        noticeTh: result.coverage === 'none' ? 'ไม่มีข้อมูลเรดาร์ในพื้นที่นี้' : null,
+        attribution: deps.radarProvider.attribution,
+        attributionUrl: deps.radarProvider.attributionUrl,
+        maxZoom: deps.radarProvider.maxZoom,
       });
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.warn({ err: message }, 'Failed to load radar frames');
+      res.status(503).json({ error: { code: 'RADAR_UNAVAILABLE', messageTh: 'โหลดข้อมูลเรดาร์ไม่สำเร็จ' } });
+    }
+  });
+
+  router.get('/radar/tiles/:z/:x/:y/:time.png', async (req: Request, res: Response) => {
+    const coordinates = TileCoordinateSchema.safeParse(req.params);
+    const time = z.coerce.number().int().positive().safeParse(req.params['time']);
+    if (!coordinates.success || !time.success) {
+      res.status(400).json({ error: { code: 'INVALID_TILE', messageTh: 'พิกัดแผนที่ไม่ถูกต้อง' } });
+      return;
+    }
+    const { z: zoom, x, y } = coordinates.data;
+    if (zoom > deps.radarProvider.maxZoom || x >= 2 ** zoom || y >= 2 ** zoom) {
+      res.status(400).json({ error: { code: 'INVALID_TILE', messageTh: 'พิกัดแผนที่ไม่ถูกต้อง' } });
+      return;
+    }
+    recordRequest('radar');
+    const cacheKey = `${deps.radarProvider.id}:${zoom}:${x}:${y}:${time.data}`;
+    const cached = radarTileCache.get<Buffer>(cacheKey);
+    if (cached) {
+      res.status(200).set('Content-Type', 'image/png').set('Cache-Control', 'public, max-age=300').send(cached);
+      return;
+    }
+    try {
+      const tile = await deps.radarProvider.getTile({ z: zoom, x, y }, time.data);
+      if (!tile) {
+        res.status(404).json({
+          error: {
+            code: 'RADAR_TILE_UNAVAILABLE',
+            messageTh: radarCoverage === 'none' ? 'ไม่มีข้อมูลเรดาร์ในพื้นที่นี้' : 'ไม่มีภาพเรดาร์สำหรับช่วงเวลานี้',
+          },
+        });
+        return;
+      }
+      radarTileCache.set(cacheKey, tile, 300);
+      lastSuccess.radar = new Date().toISOString();
+      res.status(200)
+        .set('Content-Type', 'image/png')
+        .set('Cache-Control', 'public, max-age=300')
+        .set('X-Content-Type-Options', 'nosniff')
+        .send(tile);
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.warn({ err: message }, 'Failed to load radar tile');
+      res.status(502).json({ error: { code: 'RADAR_TILE_UNAVAILABLE', messageTh: 'โหลดภาพเรดาร์ไม่สำเร็จ' } });
+    }
+  });
+
+  router.get('/lightning/summary', async (req: Request, res: Response) => {
+    const point = PointQuerySchema.safeParse(req.query);
+    if (!point.success) {
+      res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
+      return;
+    }
+    recordRequest('lightning');
+    try {
+      const summary = await deps.lightningProvider.getSummary(point.data.lat, point.data.lon);
+      lightningCoverage = summary.count30min === null ? 'none' : 'available';
+      if (summary.count30min !== null) lastSuccess.lightning = summary.observedAt;
+      res.status(200).set('Cache-Control', 'private, max-age=120').json({
+        ...summary,
+        display: 'counts-only',
+        noticeTh: deps.lightningProvider.id === 'none' ? 'ไม่มีผู้ให้บริการฟ้าผ่า' : null,
+      });
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.warn({ err: message }, 'Failed to load lightning summary');
+      res.status(503).json({ error: { code: 'LIGHTNING_UNAVAILABLE', messageTh: 'โหลดข้อมูลฟ้าผ่าไม่สำเร็จ' } });
+    }
+  });
+
+  router.get('/storm-tracks', async (_req: Request, res: Response) => {
+    recordRequest('storm-track');
+    try {
+      const tracks = await deps.stormTrackProvider.getTracks();
+      stormCoverage = tracks.features.length > 0 ? 'available' : 'none';
+      lastSuccess['storm-track'] = new Date().toISOString();
+      res.status(200).set('Cache-Control', 'public, max-age=1800').json({
+        ...tracks,
+        attribution: deps.stormTrackProvider.attribution,
+        attributionUrl: deps.stormTrackProvider.attributionUrl,
+      });
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.warn({ err: message }, 'Failed to load GDACS storm tracks');
+      res.status(503).json({ error: { code: 'STORM_TRACKS_UNAVAILABLE', messageTh: 'โหลดเส้นทางพายุไม่สำเร็จ' } });
+    }
+  });
+
+  router.get('/environment', async (req: Request, res: Response) => {
+    const point = PointQuerySchema.safeParse(req.query);
+    const communityId = z.string().max(80).optional().safeParse(req.query['communityId']);
+    if (!point.success || !communityId.success) {
+      res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
       return;
     }
     try {
       const result = await deps.environmentDataService.getAreaEnvironment(
-        parsedPoint.data.lat,
-        parsedPoint.data.lon,
-        parsedCommunity.data
+        point.data.lat,
+        point.data.lon,
+        communityId.data
       );
       res.status(200).json(result);
     } catch (error: unknown) {
-      const safeMessage = redactSecretsInText(error instanceof Error ? error.message : String(error));
-      logger.error({ error: safeMessage }, 'Failed to load area elevation and marine context');
-      res.status(503).json({
-        error: { code: 'ENVIRONMENT_UNAVAILABLE', messageTh: 'โหลดข้อมูลความสูงและพยากรณ์ระดับน้ำทะเลไม่สำเร็จ' },
-      });
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.error({ error: message }, 'Failed to load area elevation and marine context');
+      res.status(503).json({ error: { code: 'ENVIRONMENT_UNAVAILABLE', messageTh: 'โหลดข้อมูลความสูงและพยากรณ์ระดับน้ำทะเลไม่สำเร็จ' } });
     }
   });
 
   router.get('/geocode', async (req: Request, res: Response) => {
-    const parsed = GeocodeQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
+    const query = GeocodeQuerySchema.safeParse(req.query);
+    if (!query.success) {
       res.status(400).json({ error: { code: 'INVALID_QUERY', messageTh: 'กรุณาค้นหาด้วยคำอย่างน้อย 3 ตัวอักษร' } });
       return;
     }
     if (deps.dataMode === 'mock') {
       try {
-        const query = parsed.data.q.toLocaleLowerCase(parsed.data.lang === 'th' ? 'th-TH' : 'en');
+        const search = query.data.q.toLocaleLowerCase(query.data.lang === 'th' ? 'th-TH' : 'en');
         const communities = await loadCommunities();
         const results = communities
           .filter((community) =>
-            community.name_th.toLocaleLowerCase('th-TH').includes(query) ||
-            community.name_en.toLocaleLowerCase('en').includes(query)
+            community.name_th.toLocaleLowerCase('th-TH').includes(search) ||
+            community.name_en.toLocaleLowerCase('en').includes(search)
           )
           .slice(0, 5)
           .map((community) => ({
             lat: community.lat,
             lon: community.lon,
-            name: parsed.data.lang === 'th' ? community.name_th : community.name_en,
+            name: query.data.lang === 'th' ? community.name_th : community.name_en,
             district: '',
             province: '',
-            displayName: parsed.data.lang === 'th' ? community.name_th : community.name_en,
+            displayName: query.data.lang === 'th' ? community.name_th : community.name_en,
           }));
         res.status(200).json({ results });
       } catch (error: unknown) {
-        const safeMessage = redactSecretsInText(error instanceof Error ? error.message : String(error));
-        logger.error({ error: safeMessage }, 'Failed to load local mock search candidates');
+        const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+        logger.error({ error: message }, 'Failed to load local mock search candidates');
         res.status(500).json({ error: { code: 'COMMUNITIES_CONFIG_ERROR', messageTh: 'โหลดรายการค้นหาในโหมดสาธิตไม่สำเร็จ' } });
       }
       return;
     }
     try {
-      const results = await deps.geocodingProvider.search(parsed.data.q, parsed.data.lang);
-      res.status(200).json({ results });
-    } catch {
+      res.status(200).json({ results: await deps.geocodingProvider.search(query.data.q, query.data.lang) });
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.warn({ error: message }, 'Geocoding request failed');
       res.status(502).json({ error: { code: 'GEOCODING_UNAVAILABLE', messageTh: 'ค้นหาตำแหน่งไม่สำเร็จ กรุณาลองอีกครั้ง' } });
     }
   });
 
   router.get('/reverse-geocode', async (req: Request, res: Response) => {
-    const parsed = PointQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
+    const point = PointQuerySchema.safeParse(req.query);
+    if (!point.success) {
       res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
       return;
     }
-    if (deps.dataMode === 'mock' && !deps.allowGeocodingInMock) {
+    if (deps.dataMode === 'mock') {
       res.status(200).json({ result: null });
       return;
     }
     try {
-      const result = await deps.geocodingProvider.reverse(parsed.data.lat, parsed.data.lon, 'th');
-      res.status(200).json({ result });
-    } catch {
+      res.status(200).json({
+        result: await deps.geocodingProvider.reverse(point.data.lat, point.data.lon, 'th'),
+      });
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.warn({ error: message }, 'Reverse geocoding request failed');
       res.status(502).json({ error: { code: 'GEOCODING_UNAVAILABLE', messageTh: 'ค้นหาชื่อตำแหน่งไม่สำเร็จ' } });
     }
   });
 
   router.get('/risk', async (req: Request, res: Response) => {
-    const parsed = RiskQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
+    const query = RiskQuerySchema.safeParse(req.query);
+    if (!query.success) {
       res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
       return;
     }
-    const lat = deps.dataMode === 'mock' ? parsed.data.lat : Number(parsed.data.lat.toFixed(2));
-    const lon = deps.dataMode === 'mock' ? parsed.data.lon : Number(parsed.data.lon.toFixed(2));
     try {
-      const result = await deps.riskDataService.getPointRisk(lat, lon, {
-        scenario: parsed.data.scenario as MockScenarioName | undefined,
-        date: parsed.data.date,
-        offsetMin: parsed.data.offsetMin,
-      });
-      res.status(200).json(result);
+      const { lat, lon, ...options } = query.data;
+      res.status(200).json(await deps.riskDataService.getPointRisk(
+        deps.dataMode === 'mock' ? lat : Number(lat.toFixed(2)),
+        deps.dataMode === 'mock' ? lon : Number(lon.toFixed(2)),
+        { ...options, scenario: options.scenario as MockScenarioName | undefined }
+      ));
     } catch (error: unknown) {
-      const safeMessage = redactSecretsInText(error instanceof Error ? error.message : String(error));
-      logger.error({ error: safeMessage }, 'Failed to calculate point risk');
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.error({ error: message }, 'Failed to calculate point risk');
       res.status(503).json({ error: { code: 'RISK_UNAVAILABLE', messageTh: 'คำนวณข้อมูลความเสี่ยงไม่สำเร็จ กรุณาลองอีกครั้ง' } });
     }
   });
 
-  router.get('/soil', (req: Request, res: Response) => {
-    const parsed = PointQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
-      res.status(400).json({
-        error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' },
-      });
+  router.get('/risk/:communityId', async (req: Request, res: Response) => {
+    const id = CommunityIdParamSchema.safeParse(req.params['communityId']);
+    if (!id.success) {
+      res.status(400).json({ error: { code: 'INVALID_COMMUNITY_ID', messageTh: 'รหัสชุมชนไม่ถูกต้อง' } });
       return;
     }
-    res.status(200).json({
-      soil: lookupSoil(parsed.data.lat, parsed.data.lon),
-      source: 'LDD 1:25,000',
-      coverage: 'pathum-thani',
-    });
+    try {
+      const community = await findCommunityById(id.data);
+      if (!community) {
+        res.status(404).json({ error: { code: 'COMMUNITY_NOT_FOUND', messageTh: 'ไม่พบข้อมูลชุมชน' } });
+        return;
+      }
+      res.status(200).json({ ...(await deps.riskDataService.getPointRisk(community.lat, community.lon)), communityId: community.id });
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.error({ communityId: id.data, error: message }, 'Failed to load risk data');
+      res.status(500).json({ error: { code: 'RISK_RESULT_ERROR', messageTh: 'โหลดข้อมูลความเสี่ยงไม่สำเร็จ' } });
+    }
+  });
+
+  router.get('/communities', async (_req: Request, res: Response) => {
+    try {
+      const communities = await loadCommunities();
+      res.status(200).json({ communities, count: communities.length });
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.error({ err: message }, 'Failed to load communities config');
+      res.status(500).json({ error: { code: 'COMMUNITIES_CONFIG_ERROR', messageTh: 'ไม่สามารถโหลดข้อมูลรายชื่อชุมชนได้ในขณะนี้' } });
+    }
+  });
+
+  router.get('/soil', (req: Request, res: Response) => {
+    const point = PointQuerySchema.safeParse(req.query);
+    if (!point.success) {
+      res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
+      return;
+    }
+    res.status(200).json({ soil: lookupSoil(point.data.lat, point.data.lon), source: 'LDD 1:25,000', coverage: 'pathum-thani' });
   });
 
   router.get('/soil/layer', (_req: Request, res: Response) => {
@@ -259,308 +391,14 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     res.status(200).json(getSoilLayer());
   });
 
-  /** GET /api/capabilities reports provider access separately from verified geographic coverage. */
-  router.get('/capabilities', async (_req: Request, res: Response) => {
-    res.status(200).json(await loadCapabilities());
-  });
-
-  router.get('/map/tiles/:z/:x/:y.png', async (req: Request, res: Response) => {
-    const zValue = Number(req.params['z']);
-    const xValue = Number(req.params['x']);
-    const yValue = Number(req.params['y']);
-    if (
-      !Number.isInteger(zValue) ||
-      !Number.isInteger(xValue) ||
-      !Number.isInteger(yValue) ||
-      zValue < 0 ||
-      zValue > 19 ||
-      xValue < 0 ||
-      yValue < 0 ||
-      xValue >= 2 ** zValue ||
-      yValue >= 2 ** zValue
-    ) {
-      res.status(400).json({
-        error: { code: 'INVALID_TILE', messageTh: 'พิกัดแผนที่ไม่ถูกต้อง' },
-      });
-      return;
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    try {
-      const tileResponse = await fetch(
-        `https://tile.openstreetmap.org/${zValue}/${xValue}/${yValue}.png`,
-        {
-          headers: {
-            Accept: 'image/png',
-            'User-Agent': 'RainBurstEarlyWarning/0.1 (community weather dashboard)',
-          },
-          signal: controller.signal,
-        }
-      );
-      if (!tileResponse.ok) {
-        logger.warn({ statusCode: tileResponse.status }, 'OpenStreetMap tile request failed');
-        res.status(502).json({
-          error: { code: 'MAP_TILE_UNAVAILABLE', messageTh: 'โหลดแผนที่ไม่สำเร็จ' },
-        });
-        return;
-      }
-      const contentType = tileResponse.headers.get('content-type')?.split(';', 1)[0]?.trim();
-      if (!contentType?.startsWith('image/')) {
-        logger.warn({ contentType }, 'OpenStreetMap returned a non-image tile');
-        res.status(502).json({
-          error: { code: 'MAP_TILE_UNAVAILABLE', messageTh: 'โหลดแผนที่ไม่สำเร็จ' },
-        });
-        return;
-      }
-      res
-        .status(200)
-        .set('Content-Type', contentType)
-        .set('Cache-Control', 'public, max-age=3600')
-        .set('X-Content-Type-Options', 'nosniff')
-        .send(Buffer.from(await tileResponse.arrayBuffer()));
-    } catch (error: unknown) {
-      logger.warn(
-        { errorName: error instanceof Error ? error.name : 'UnknownError' },
-        'OpenStreetMap tile proxy failed'
-      );
-      res.status(502).json({
-        error: { code: 'MAP_TILE_UNAVAILABLE', messageTh: 'โหลดแผนที่ไม่สำเร็จ' },
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-
-  router.get('/tiles/:layer/:z/:x/:y/:offset.png', async (req: Request, res: Response) => {
-    const parsedLayer = RasterTileLayerSchema.safeParse(req.params['layer']);
-    const parsedOffset = RadarOffsetSchema.safeParse(req.params['offset']);
-    const coordinates = TileCoordinateSchema.safeParse({
-      z: req.params['z'],
-      x: req.params['x'],
-      y: req.params['y'],
-    });
-    if (!parsedLayer.success || !parsedOffset.success || !coordinates.success) {
-      res.status(400).json({ error: { code: 'INVALID_TILE', messageTh: 'พิกัดหรือชั้นแผนที่ไม่ถูกต้อง' } });
-      return;
-    }
-    const { z, x, y } = coordinates.data;
-    if (x >= 2 ** z || y >= 2 ** z) {
-      res.status(400).json({ error: { code: 'INVALID_TILE', messageTh: 'พิกัดแผนที่ไม่ถูกต้อง' } });
-      return;
-    }
-    if (deps.dataMode === 'mock') {
-      res.status(200)
-        .set('Content-Type', 'image/png')
-        .set('Cache-Control', 'public, max-age=300')
-        .set('X-Content-Type-Options', 'nosniff')
-        .send(transparentTile);
-      return;
-    }
-    if (!deps.xweatherClient.hasCredentials()) {
-      res.status(503).json({ error: { code: 'TILE_SOURCE_UNAVAILABLE', reason: 'error' } });
-      return;
-    }
-
-    const layer = parsedLayer.data;
-    const offset = parsedOffset.data;
-    const cacheKey = `${layer}:${z}:${x}:${y}:${offset}`;
-    const cached = rasterCache.get<{ body: Buffer; contentType: string }>(cacheKey);
-    if (cached) {
-      res.status(200)
-        .set('Content-Type', cached.contentType)
-        .set('Cache-Control', `public, max-age=${layer === 'tropical-cyclones' ? 1800 : 300}`)
-        .set('X-Content-Type-Options', 'nosniff')
-        .send(cached.body);
-      return;
-    }
-
-    const tile = await deps.xweatherClient.fetchRasterTile({ layer, z, x, y, offset });
-    if (!tile.ok) {
-      const status = tile.status === 401 || tile.status === 403 ? 403 :
-        tile.status === 404 ? 404 : 502;
-      const reason = status === 403 ? 'no_plan' : status === 404 ? 'no_coverage' : 'error';
-      logger.warn({ layer, status, reason }, 'Xweather tile unavailable');
-      res.status(status).json({ error: { code: 'TILE_SOURCE_UNAVAILABLE', reason } });
-      return;
-    }
-
-    const maxAge = layer === 'tropical-cyclones' ? 1800 : 300;
-    res.status(200)
-      .set('Content-Type', tile.contentType)
-      .set('Cache-Control', `public, max-age=${maxAge}`)
-      .set('X-Content-Type-Options', 'nosniff');
-    try {
-      const chunks: Buffer[] = [];
-      const bodyStream = tile.body;
-      const stream = Readable.from((async function* () {
-        const reader = bodyStream.getReader();
-        try {
-          while (true) {
-            const chunk = await reader.read();
-            if (chunk.done) return;
-            const bytes = Buffer.from(chunk.value);
-            chunks.push(bytes);
-            yield bytes;
-          }
-        } finally {
-          reader.releaseLock();
-        }
-      })());
-      stream.on('end', () => rasterCache.set(cacheKey, {
-        body: Buffer.concat(chunks),
-        contentType: tile.contentType,
-      }, maxAge));
-      await pipeline(stream, res);
-    } catch (error: unknown) {
-      logger.warn({ layer, errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Xweather tile streaming failed');
-      if (!res.headersSent) res.status(502).json({ error: { code: 'TILE_SOURCE_UNAVAILABLE', reason: 'error' } });
-      else res.destroy();
-    }
-  });
-
-  /**
-   * GET /api/health
-   * ตรวจสอบสถานะเซิร์ฟเวอร์, สถานะการตั้งค่า Xweather, และสถิติ cache
-   */
   router.get('/health', (_req: Request, res: Response) => {
-    const cacheStats = deps.cacheStore.stats();
     res.status(200).json({
       status: 'ok',
       service: 'rain-bomb-api',
       timestamp: new Date().toISOString(),
       timezone: 'Asia/Bangkok',
-      xweatherConfigured: deps.hasXweatherCredentials,
-      demoMode: deps.demoMode,
       dataMode: deps.dataMode,
-      cache: cacheStats,
-      disclaimerTh: DECISION_SUPPORT_DISCLAIMER_TH,
     });
-  });
-
-  router.get('/risk/:communityId', async (req: Request, res: Response) => {
-    const parsedParam = CommunityIdParamSchema.safeParse(req.params['communityId']);
-    if (!parsedParam.success) {
-      res.status(400).json({
-        error: { code: 'INVALID_COMMUNITY_ID', messageTh: 'รหัสชุมชนไม่ถูกต้อง' },
-      });
-      return;
-    }
-
-    try {
-      const community = await findCommunityById(parsedParam.data);
-      if (!community) {
-        res.status(404).json({
-          error: { code: 'COMMUNITY_NOT_FOUND', messageTh: 'ไม่พบข้อมูลชุมชน' },
-        });
-        return;
-      }
-
-      const result = await deps.riskDataService.getPointRisk(community.lat, community.lon);
-      res.status(200).json({ ...result, communityId: community.id });
-    } catch (error: unknown) {
-      const safeMessage = redactSecretsInText(
-        error instanceof Error ? error.message : String(error)
-      );
-      logger.error({ communityId: parsedParam.data, err: safeMessage }, 'Failed to load risk data');
-      res.status(500).json({
-        error: { code: 'RISK_RESULT_ERROR', messageTh: 'โหลดข้อมูลความเสี่ยงไม่สำเร็จ' },
-      });
-    }
-  });
-
-  /**
-   * GET /api/communities
-   * คืนค่ารายชื่อชุมชนนำร่องทั้งหมดจาก config/communities.json
-   */
-  router.get('/communities', async (_req: Request, res: Response) => {
-    try {
-      const communities = await loadCommunities();
-      res.status(200).json({
-        communities,
-        count: communities.length,
-        disclaimerTh: DECISION_SUPPORT_DISCLAIMER_TH,
-      });
-    } catch (err: unknown) {
-      const message = redactSecretsInText(err instanceof Error ? err.message : String(err));
-      logger.error({ err: message }, 'Failed to load communities config');
-      res.status(500).json({
-        error: {
-          code: 'COMMUNITIES_CONFIG_ERROR',
-          messageTh: 'ไม่สามารถโหลดข้อมูลรายชื่อชุมชนได้ในขณะนี้',
-          detail: message,
-        },
-      });
-    }
-  });
-
-  /**
-   * GET /api/weather/:communityId
-   * คืนค่าสภาพอากาศปัจจุบัน พยากรณ์รายชั่วโมง (24 ชม.) และรายวัน (3 วัน) ที่แปลงเป็นรูปแบบมาตรฐานแล้ว
-   */
-  router.get('/weather/:communityId', async (req: Request, res: Response) => {
-    const parsedParam = CommunityIdParamSchema.safeParse(req.params['communityId']);
-    if (!parsedParam.success) {
-      res.status(400).json({
-        error: {
-          code: 'INVALID_COMMUNITY_ID',
-          messageTh: 'รหัสชุมชนไม่ถูกต้อง',
-        },
-      });
-      return;
-    }
-
-    const communityId = parsedParam.data;
-    if (deps.dataMode === 'mock') {
-      res.status(503).json({
-        error: {
-          code: 'MOCK_WEATHER_UNAVAILABLE',
-          messageTh: 'ข้อมูลพยากรณ์รายชั่วโมงของหน้านี้ยังไม่มีในโหมดสาธิต ใช้ข้อมูลจำลองในแผนที่ได้',
-        },
-      });
-      return;
-    }
-    const community = await findCommunityById(communityId);
-    if (!community) {
-      res.status(404).json({
-        error: {
-          code: 'COMMUNITY_NOT_FOUND',
-          messageTh: `ไม่พบข้อมูลชุมชนรหัส "${communityId}"`,
-        },
-      });
-      return;
-    }
-
-    try {
-      const bundle = await deps.weatherService.getCommunityWeather(community);
-      res.status(200).json(bundle);
-    } catch (err: unknown) {
-      if (err instanceof XweatherClientError) {
-        const status = err.kind === 'AUTH_OR_NAMESPACE' ? 502 : 503;
-        const messageTh =
-          err.kind === 'AUTH_OR_NAMESPACE'
-            ? 'ระบบไม่สามารถยืนยันสิทธิ์กับ Xweather API ได้ (กรุณาตรวจสอบ Client ID, Client Secret หรือ Namespace)'
-            : 'ไม่สามารถเชื่อมต่อระบบข้อมูลสภาพอากาศ Xweather ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง';
-
-        res.status(status).json({
-          error: {
-            code: `XWEATHER_${err.kind}`,
-            messageTh,
-            detail: err.message,
-          },
-        });
-        return;
-      }
-
-      const safeMessage = redactSecretsInText(err instanceof Error ? err.message : String(err));
-      logger.error({ communityId, err: safeMessage }, 'Unexpected error in GET /api/weather/:communityId');
-      res.status(500).json({
-        error: {
-          code: 'INTERNAL_SERVER_ERROR',
-          messageTh: 'เกิดข้อผิดพลาดภายในระบบในการดึงข้อมูลสภาพอากาศ',
-          detail: safeMessage,
-        },
-      });
-    }
   });
 
   return router;

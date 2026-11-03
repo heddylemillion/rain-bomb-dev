@@ -6,9 +6,21 @@ import { OverviewPage } from '../pages/OverviewPage.js';
 import { MenuDrawer } from './MenuDrawer.js';
 
 const RuntimeConfigSchema = z.object({
-  demoMode: z.boolean(),
   dataMode: z.enum(['live', 'mock', 'cache']),
   stormConeKmPer30Min: z.number().nonnegative().default(2.5),
+  radarProvider: z.object({
+    id: z.enum(['rainviewer', 'tmd', 'mock']),
+    mode: z.enum(['live', 'mock', 'cache']),
+  }),
+  lightningProvider: z.object({
+    id: z.enum(['none', 'mock']),
+    mode: z.enum(['live', 'mock', 'cache']),
+    display: z.literal('counts-only'),
+  }),
+  stormTrackProvider: z.object({
+    id: z.enum(['gdacs', 'mock']),
+    mode: z.enum(['live', 'mock', 'cache']),
+  }),
 });
 
 export function AppShell(): React.ReactNode {

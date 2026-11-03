@@ -1,8 +1,8 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import type { ProviderMode } from '../shared/providerContracts.js';
 
 dotenv.config();
 
@@ -14,115 +14,81 @@ export const COMMUNITIES_CONFIG_PATH = path.join(ROOT_DIR, 'config', 'communitie
 export const SEA_REFERENCE_POINTS_CONFIG_PATH = path.join(ROOT_DIR, 'config', 'sea-reference-points.json');
 export const STORM_CONFIG_PATH = path.join(ROOT_DIR, 'config', 'storm.json');
 export const DATA_DIR_PATH = path.join(ROOT_DIR, 'data');
-export const SAMPLES_DIR_PATH = path.join(ROOT_DIR, 'samples');
-
-const StormConfigFileSchema = z.object({
-  coneGrowthKmPer30Min: z.number().nonnegative().default(2.5),
-});
-
-function readDefaultConeGrowth(): number {
-  try {
-    const raw = JSON.parse(fs.readFileSync(STORM_CONFIG_PATH, 'utf8')) as unknown;
-    return StormConfigFileSchema.parse(raw).coneGrowthKmPer30Min;
-  } catch {
-    return 2.5;
-  }
-}
-
-const DEFAULT_STORM_CONE_GROWTH = readDefaultConeGrowth();
+export const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
 
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  XWEATHER_CLIENT_ID: z.string().default(''),
-  XWEATHER_CLIENT_SECRET: z.string().default(''),
-  XWEATHER_NAMESPACE: z.string().default(''),
-  XWEATHER_BASE_URL: z.string().url().default('https://data.api.xweather.com'),
-  XWEATHER_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
-  NOMINATIM_BASE_URL: z.string().url().default('https://nominatim.openstreetmap.org'),
   NOMINATIM_USER_AGENT: z.string().trim().min(1).default('RainBomb/0.1.0 (community weather dashboard)'),
   NOMINATIM_COUNTRYCODES: z.string().trim().default('th'),
-  GEOCODING_IN_MOCK: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   WEATHER_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   DATA_MODE: z.enum(['live', 'mock', 'cache']).default('mock'),
-  OPEN_METEO_API_KEY: z.string().default(''),
-  OPEN_METEO_COMMERCIAL: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   CORS_ALLOWED_ORIGINS: z
     .string()
     .default('http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173'),
-  DEMO_MODE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
-  STORM_CONE_KM_PER_30MIN: z.coerce.number().nonnegative().default(DEFAULT_STORM_CONE_GROWTH),
-}).superRefine((env, context) => {
-  if (env.OPEN_METEO_COMMERCIAL && !env.OPEN_METEO_API_KEY.trim()) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['OPEN_METEO_API_KEY'],
-      message: 'OPEN_METEO_API_KEY is required when OPEN_METEO_COMMERCIAL=true',
-    });
-  }
+  STORM_CONE_KM_PER_30MIN: z.coerce.number().nonnegative().default(2.5),
+  RADAR_PROVIDER: z.enum(['rainviewer', 'tmd']).default('rainviewer'),
+  RADAR_MODE: z.enum(['live', 'mock', 'cache']).optional(),
+  LIGHTNING_PROVIDER: z.literal('none').default('none'),
+  LIGHTNING_MODE: z.enum(['live', 'mock', 'cache']).optional(),
+  STORM_TRACK_PROVIDER: z.literal('gdacs').default('gdacs'),
+  STORM_TRACK_MODE: z.enum(['live', 'mock', 'cache']).optional(),
 });
 
 export interface AppConfig {
   port: number;
   nodeEnv: 'development' | 'test' | 'production';
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
-  xweather: {
-    clientId: string;
-    clientSecret: string;
-    namespace: string;
-    baseUrl: string;
-    timeoutMs: number;
-  };
   geocoding: {
     baseUrl: string;
     userAgent: string;
     countryCodes: string;
-    allowInMock: boolean;
   };
   cacheTtlSeconds: number;
-  dataMode: 'live' | 'mock' | 'cache';
-  openMeteo: {
-    apiKey: string;
-    commercial: boolean;
-  };
+  dataMode: ProviderMode;
   corsAllowedOrigins: string[];
-  demoMode: boolean;
   stormConeKmPer30Min: number;
+  providers: {
+    radar: { id: 'rainviewer' | 'tmd'; mode: ProviderMode };
+    lightning: { id: 'none'; mode: ProviderMode };
+    stormTrack: { id: 'gdacs'; mode: ProviderMode };
+  };
 }
 
 export function loadConfig(envInput: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = EnvSchema.parse(envInput);
   const origins = parsed.CORS_ALLOWED_ORIGINS.split(',')
-    .map((o) => o.trim())
-    .filter((o) => o.length > 0);
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
 
   return {
     port: parsed.PORT,
     nodeEnv: parsed.NODE_ENV,
     logLevel: parsed.NODE_ENV === 'test' ? 'silent' : parsed.LOG_LEVEL,
-    xweather: {
-      clientId: parsed.XWEATHER_CLIENT_ID.trim(),
-      clientSecret: parsed.XWEATHER_CLIENT_SECRET.trim(),
-      namespace: parsed.XWEATHER_NAMESPACE.trim(),
-      baseUrl: parsed.XWEATHER_BASE_URL.replace(/\/$/, ''),
-      timeoutMs: parsed.XWEATHER_TIMEOUT_MS,
-    },
     geocoding: {
-      baseUrl: parsed.NOMINATIM_BASE_URL.replace(/\/$/, ''),
+      baseUrl: NOMINATIM_BASE_URL,
       userAgent: parsed.NOMINATIM_USER_AGENT,
       countryCodes: parsed.NOMINATIM_COUNTRYCODES,
-      allowInMock: parsed.GEOCODING_IN_MOCK,
     },
     cacheTtlSeconds: parsed.WEATHER_CACHE_TTL_SECONDS,
     dataMode: parsed.DATA_MODE,
-    openMeteo: {
-      apiKey: parsed.OPEN_METEO_API_KEY.trim(),
-      commercial: parsed.OPEN_METEO_COMMERCIAL,
-    },
     corsAllowedOrigins: origins,
-    demoMode: parsed.DEMO_MODE,
     stormConeKmPer30Min: parsed.STORM_CONE_KM_PER_30MIN,
+    providers: {
+      radar: {
+        id: parsed.RADAR_PROVIDER,
+        mode: parsed.RADAR_MODE ?? parsed.DATA_MODE,
+      },
+      lightning: {
+        id: parsed.LIGHTNING_PROVIDER,
+        mode: parsed.LIGHTNING_MODE ?? parsed.DATA_MODE,
+      },
+      stormTrack: {
+        id: parsed.STORM_TRACK_PROVIDER,
+        mode: parsed.STORM_TRACK_MODE ?? parsed.DATA_MODE,
+      },
+    },
   };
 }
 

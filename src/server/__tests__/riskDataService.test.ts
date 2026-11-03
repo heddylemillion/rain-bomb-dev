@@ -1,150 +1,57 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { SAMPLES_DIR_PATH } from '../config.js';
-import {
-  XweatherConditionEnvelopeSchema,
-  XweatherForecastEnvelopeSchema,
-  XweatherObservationEnvelopeSchema,
-} from '../schemas/xweather.schema.js';
+import { MockLightningProvider, NoLightningProvider } from '../services/weatherProviders.js';
 import { RiskDataService } from '../services/riskDataService.js';
-import { XweatherClient, XweatherClientError } from '../services/xweatherClient.js';
 
-async function sample(filename: string): Promise<unknown> {
-  return JSON.parse(await fs.readFile(path.join(SAMPLES_DIR_PATH, filename), 'utf8')) as unknown;
-}
-
-function noPlanError(): XweatherClientError {
-  return new XweatherClientError({
-    message: 'Endpoint not included in the current plan',
-    kind: 'API_ERROR',
-    apiErrorCode: 'not_included',
-    redactedUrl: 'https://data.api.xweather.com/unavailable',
-  });
+function openMeteoForecast(now: number): unknown {
+  const firstHour = Math.floor(now / 3_600_000) * 3_600_000;
+  return {
+    hourly: {
+      time: Array.from({ length: 24 }, (_, index) =>
+        new Date(firstHour + index * 3_600_000).toISOString().slice(0, 16)),
+      precipitation: Array.from({ length: 24 }, (_, index) => index < 3 ? 2 : 0.2),
+      precipitation_probability: Array.from({ length: 24 }, (_, index) => index < 3 ? 80 : 10),
+      relative_humidity_2m: Array.from({ length: 24 }, () => 85),
+      pressure_msl: Array.from({ length: 24 }, (_, index) => 1008 - index * 0.1),
+    },
+  };
 }
 
 describe('RiskDataService', () => {
-  it('calculates only from saved Xweather responses and deduplicates successful and unavailable sources', async () => {
-    const conditions = XweatherConditionEnvelopeSchema.parse(await sample('conditions.json'));
-    const observations = XweatherObservationEnvelopeSchema.parse(await sample('observations.json'));
-    const forecast = XweatherForecastEnvelopeSchema.parse(await sample('forecasts-1hr.json'));
-    const client = new XweatherClient({
-      baseUrl: 'https://data.api.xweather.com',
-      clientId: 'test_client',
-      clientSecret: 'test_secret',
-    });
-    const conditionsSpy = vi.spyOn(client, 'fetchConditions').mockResolvedValue(conditions);
-    const observationsSpy = vi.spyOn(client, 'fetchObservations').mockResolvedValue(observations);
-    const forecastSpy = vi.spyOn(client, 'fetchHourlyForecast').mockResolvedValue(forecast);
-    const archiveSpy = vi.spyOn(client, 'fetchObservationsArchive').mockRejectedValue(noPlanError());
-    const lightningSpy = vi.spyOn(client, 'fetchLightningWithin').mockRejectedValue(noPlanError());
-    const alertsSpy = vi.spyOn(client, 'fetchRawEndpoint').mockRejectedValue(noPlanError());
-    const service = new RiskDataService(client);
+  it('uses the Open-Meteo forecast and keeps an unconfigured lightning factor unavailable', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify(openMeteoForecast(Date.now())), { status: 200 })
+    );
+    const result = await new RiskDataService('live', new NoLightningProvider('live'), fetcher)
+      .getPointRisk(13.75, 100.5);
 
-    const [first, second] = await Promise.all([
-      service.getPointRisk(14.0647, 100.6186),
-      service.getPointRisk(14.0647, 100.6186),
-    ]);
-
-    expect(first.score).not.toBeNull();
-    expect(first.level).not.toBe('INSUFFICIENT');
-    expect(first.isMock).toBe(false);
-    expect(first.factors.find((factor) => factor.id === 'rainNowMmHr')).toMatchObject({
-      rawValue: 0.03,
-      available: true,
-    });
-    expect(first.factors.find((factor) => factor.id === 'lightning30minCount')).toMatchObject({
-      rawValue: null,
+    const lightning = result.factors.find((factor) => factor.id === 'lightning30minCount');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain('api.open-meteo.com/v1/forecast');
+    expect(lightning).toMatchObject({
       available: false,
-      reason: 'no_plan',
-    });
-    expect(first.factors.find((factor) => factor.id === 'pressureDrop3hHpa')).toMatchObject({
       rawValue: null,
-      available: false,
-      reason: 'no_plan',
+      reason: 'unavailable',
+      source: 'No lightning provider configured',
     });
-    expect(first.fetchedAt).not.toBeNull();
-    expect(second.score).toBe(first.score);
-    expect(conditionsSpy).toHaveBeenCalledTimes(1);
-    expect(observationsSpy).toHaveBeenCalledTimes(1);
-    expect(forecastSpy).toHaveBeenCalledTimes(1);
-    expect(archiveSpy).toHaveBeenCalledTimes(1);
-    expect(lightningSpy).toHaveBeenCalledTimes(1);
-    expect(alertsSpy).toHaveBeenCalledTimes(1);
+    expect(result.confidence).toBeLessThan(1);
+    expect(result.lightningSummary).toEqual({ count30min: null, nearestStrikeKm: null });
   });
 
-  it('treats a successful empty lightning response as a real zero count', async () => {
-    const client = new XweatherClient({
-      baseUrl: 'https://data.api.xweather.com',
-      clientId: 'test_client',
-      clientSecret: 'test_secret',
-    });
-    vi.spyOn(client, 'fetchConditions').mockRejectedValue(noPlanError());
-    vi.spyOn(client, 'fetchObservations').mockRejectedValue(noPlanError());
-    vi.spyOn(client, 'fetchHourlyForecast').mockRejectedValue(noPlanError());
-    vi.spyOn(client, 'fetchObservationsArchive').mockRejectedValue(noPlanError());
-    vi.spyOn(client, 'fetchLightningWithin').mockResolvedValue({
-      success: true,
-      error: null,
-      response: [],
-    });
-    vi.spyOn(client, 'fetchRawEndpoint').mockResolvedValue({
-      success: true,
-      error: null,
-      response: [],
-    });
+  it('does not make any outbound calls in mock mode', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const result = await new RiskDataService('mock', new MockLightningProvider(), fetcher)
+      .getPointRisk(13.75, 100.5);
 
-    const result = await new RiskDataService(client).getPointRisk(14.0647, 100.6186);
-    expect(result.score).toBeNull();
-    expect(result.factors.find((factor) => factor.id === 'lightning30minCount')).toMatchObject({
-      rawValue: 0,
-      available: true,
-    });
-    expect(result.lightningSummary.count30min).toBe(0);
+    expect(result.isMock).toBe(true);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it('serves successful data stale for 30 minutes, then reports no data with the last success time', async () => {
-    const start = new Date('2026-10-28T08:00:00.000Z');
-    vi.useFakeTimers();
-    vi.setSystemTime(start);
-    try {
-      const conditions = XweatherConditionEnvelopeSchema.parse(await sample('conditions.json'));
-      const observations = XweatherObservationEnvelopeSchema.parse(await sample('observations.json'));
-      const forecast = XweatherForecastEnvelopeSchema.parse(await sample('forecasts-1hr.json'));
-      const client = new XweatherClient({
-        baseUrl: 'https://data.api.xweather.com',
-        clientId: 'test_client',
-        clientSecret: 'test_secret',
-      });
-      const conditionsSpy = vi.spyOn(client, 'fetchConditions').mockResolvedValue(conditions);
-      const observationsSpy = vi.spyOn(client, 'fetchObservations').mockResolvedValue(observations);
-      const forecastSpy = vi.spyOn(client, 'fetchHourlyForecast').mockResolvedValue(forecast);
-      vi.spyOn(client, 'fetchObservationsArchive').mockRejectedValue(noPlanError());
-      vi.spyOn(client, 'fetchLightningWithin').mockRejectedValue(noPlanError());
-      vi.spyOn(client, 'fetchRawEndpoint').mockRejectedValue(noPlanError());
-      const service = new RiskDataService(client);
-      const fresh = await service.getPointRisk(14.0647, 100.6186);
+  it('does not make a network request in cache mode without a saved forecast', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const result = await new RiskDataService('cache', new NoLightningProvider('cache'), fetcher)
+      .getPointRisk(13.75, 100.5);
 
-      conditionsSpy.mockRejectedValue(noPlanError());
-      observationsSpy.mockRejectedValue(noPlanError());
-      forecastSpy.mockRejectedValue(noPlanError());
-      vi.setSystemTime(new Date(start.getTime() + 6 * 60 * 1000));
-      const stale = await service.getPointRisk(14.0647, 100.6186);
-      expect(stale.factors.find((factor) => factor.id === 'rainNowMmHr')).toMatchObject({
-        available: true,
-        isStale: true,
-      });
-      expect(stale.fetchedAt).toBe(fresh.fetchedAt);
-
-      vi.setSystemTime(new Date(start.getTime() + 31 * 60 * 1000));
-      const expired = await service.getPointRisk(14.0647, 100.6186);
-      expect(expired.factors.find((factor) => factor.id === 'rainNowMmHr')).toMatchObject({
-        available: false,
-        reason: 'no_plan',
-      });
-      expect(expired.fetchedAt).toBe(fresh.fetchedAt);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.factors.every((factor) => !factor.available)).toBe(true);
   });
 });

@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import dotenv from 'dotenv';
 import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { elevationCell } from '../services/elevationCache.js';
@@ -14,7 +15,6 @@ import {
   selectSeaReferencePoint,
   type SeaReferencePoint,
 } from '../services/environmentDataService.js';
-import { XweatherClient } from '../services/xweatherClient.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -94,25 +94,6 @@ describe('Open-Meteo elevation provider', () => {
     expect(firstUrl.pathname).toBe('/v1/elevation');
     expect(firstUrl.searchParams.get('latitude')).toContain(',');
     expect(firstUrl.searchParams.get('longitude')).toContain(',');
-  });
-
-  it('uses the backend customer endpoint and key only for commercial configuration', async () => {
-    const directory = await temporaryPath();
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
-      const url = new URL(String(input));
-      expect(url.hostname).toBe('customer-api.open-meteo.com');
-      expect(url.searchParams.get('apikey')).toBe('server-key');
-      return response({ elevation: [9] });
-    });
-    const provider = new OpenMeteoElevationProvider({
-      mode: 'live',
-      commercial: true,
-      apiKey: 'server-key',
-      fetcher,
-      elevationCachePath: path.join(directory, 'commercial-cache.json'),
-    });
-    await provider.getMany([{ latitude: 14.065, longitude: 100.6186 }]);
-    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -268,30 +249,6 @@ describe('Open-Meteo Marine provider', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the customer Marine endpoint and API key only for commercial access', async () => {
-    const directory = await temporaryPath();
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
-      const url = new URL(String(input));
-      expect(url.hostname).toBe('customer-marine-api.open-meteo.com');
-      expect(url.searchParams.get('apikey')).toBe('server-key');
-      return response({
-        hourly: {
-          time: [],
-          sea_level_height_msl: [],
-          wave_height: [],
-        },
-      });
-    });
-    await new OpenMeteoMarineProvider({
-      mode: 'live',
-      commercial: true,
-      apiKey: 'server-key',
-      fetcher,
-      marineCachePath: path.join(directory, 'commercial-marine.json'),
-    }).getForecast(candidatePoints[0]!);
-    expect(fetcher).toHaveBeenCalledTimes(1);
-  });
-
   it('never sends requests in mock mode and returns a deterministic 48-hour shape', async () => {
     const fetcher = vi.fn<typeof fetch>();
     const point = candidatePoints[0]!;
@@ -374,51 +331,23 @@ describe('Open-Meteo Marine provider', () => {
   });
 
   it('enables mock map overlays without making quota-limited provider requests', async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
-    const externalFetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      if (!String(input).startsWith('https://tile.openstreetmap.org/')) {
-        throw new Error('Mock mode must not contact quota-limited providers');
-      }
-      return new Response(new Uint8Array([137, 80, 78, 71]), {
-        status: 200,
-        headers: { 'Content-Type': 'image/png' },
-      });
-    });
-    const xweatherClient = new XweatherClient({
-      baseUrl: 'https://data.api.xweather.com',
-      clientId: 'mock-capabilities-test',
-      clientSecret: 'mock-capabilities-secret',
-      fetchImpl,
-    });
+    const externalFetch = vi.spyOn(globalThis, 'fetch');
     const app = createApp({
       config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'mock' }),
-      xweatherClient,
     });
 
     try {
-      const capabilities = await request(app).get('/api/capabilities').expect(200);
-      for (const id of ['radar-layer', 'lightning', 'tropical-cyclones']) {
-        expect(capabilities.body.capabilities).toEqual(expect.arrayContaining([
-          expect.objectContaining({ id, available: true, mock: true, reason: 'mock' }),
-        ]));
-      }
       await request(app)
         .get('/api/risk?lat=13.7563&lon=100.5018&scenario=moderate&date=2026-10-29&offsetMin=0')
         .expect(200)
         .expect(({ body }) => expect(body.isMock).toBe(true));
-      await request(app)
-        .get('/api/map/tiles/6/49/30.png')
-        .expect(200)
-        .expect(({ headers }) => expect(headers['content-type']).toContain('image/png'));
-      await request(app).get('/api/tiles/radar/6/49/30/current.png').expect(200);
+      await request(app).get('/api/radar/frames?lat=13.75&lon=100.5').expect(200);
+      await request(app).get('/api/lightning/summary?lat=13.75&lon=100.5').expect(200);
+      await request(app).get('/api/storm-tracks').expect(200);
+      await request(app).get('/api/environment?lat=13.75&lon=100.5').expect(200);
       await request(app).get('/api/geocode?q=Bangkok').expect(200);
       await request(app).get('/api/reverse-geocode?lat=13.75&lon=100.50').expect(200, { result: null });
-      await request(app).get('/api/weather/sample-community').expect(503);
-      expect(fetchImpl).not.toHaveBeenCalled();
-      expect(externalFetch).toHaveBeenCalledTimes(1);
-      expect(String(externalFetch.mock.calls[0]?.[0])).toMatch(
-        /^https:\/\/tile\.openstreetmap\.org\/6\/49\/30\.png$/
-      );
+      expect(externalFetch).not.toHaveBeenCalled();
     } finally {
       externalFetch.mockRestore();
     }
@@ -453,12 +382,21 @@ describe('reference data and data-mode safeguards', () => {
     )).not.toThrow();
   });
 
-  it('defaults the data switch to mock and confines API keys to backend config', () => {
-    const config = loadConfig({ NODE_ENV: 'test', OPEN_METEO_API_KEY: 'backend-only' });
+  it('starts with an empty environment and with the example environment', async () => {
+    const config = loadConfig({});
     expect(config.dataMode).toBe('mock');
-    expect(config.openMeteo.apiKey).toBe('backend-only');
-    expect(config.openMeteo.commercial).toBe(false);
+    expect(config.providers.radar.id).toBe('rainviewer');
+    expect(config.providers.lightning.id).toBe('none');
+    expect(config.providers.stormTrack.id).toBe('gdacs');
     expect(loadConfig({ DATA_MODE: 'cache' }).dataMode).toBe('cache');
-    expect(() => loadConfig({ OPEN_METEO_COMMERCIAL: 'true' })).toThrow();
+
+    const emptyEnvApp = createApp({ config });
+    await request(emptyEnvApp).get('/api/health').expect(200)
+      .expect(({ body }) => expect(body.dataMode).toBe('mock'));
+
+    const exampleEnv = dotenv.parse(await fs.readFile(path.resolve('.env.example')));
+    const exampleApp = createApp({ config: loadConfig(exampleEnv) });
+    await request(exampleApp).get('/api/health').expect(200)
+      .expect(({ body }) => expect(body.dataMode).toBe('mock'));
   });
 });

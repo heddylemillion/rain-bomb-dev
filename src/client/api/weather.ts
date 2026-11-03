@@ -3,14 +3,12 @@ import {
   AreaEnvironmentSchema,
   GeocodingResultSchema,
   PointRiskResponseSchema,
-  WeatherBundleSchema,
 } from '../../shared/contracts.js';
 import type {
   AreaEnvironment,
   Community,
   GeocodingResult,
   PointRiskResponse,
-  WeatherBundle,
 } from '../../shared/contracts.js';
 import { z } from 'zod';
 
@@ -30,17 +28,6 @@ async function getJson(path: string, signal: AbortSignal): Promise<unknown> {
 export async function fetchCommunities(signal: AbortSignal): Promise<Community[]> {
   const payload = await getJson('/api/communities', signal);
   return CommunitiesResponseSchema.parse(payload).communities;
-}
-
-export async function fetchCommunityWeather(
-  communityId: string,
-  signal: AbortSignal
-): Promise<WeatherBundle> {
-  const payload = await getJson(
-    `/api/weather/${encodeURIComponent(communityId)}`,
-    signal
-  );
-  return WeatherBundleSchema.parse(payload);
 }
 
 export async function searchPlaces(query: string, signal: AbortSignal): Promise<GeocodingResult[]> {

@@ -1,0 +1,9 @@
+{
+  "host": "https://tilecache.rainviewer.com",
+  "radar": {
+    "past": [
+      { "time": 1761800400, "path": "/v2/radar/1761800400" },
+      { "time": 1761801000, "path": "/v2/radar/1761801000" }
+    ]
+  }
+}

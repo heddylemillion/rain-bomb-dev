@@ -61,9 +61,10 @@ const FACTOR_SOURCE_KEYS: Record<RiskResult['factors'][number]['id'], MessageKey
   tideFactor: 'sourceMarine',
 };
 
-const REASON_KEYS: Record<'no_plan' | 'no_coverage' | 'error' | 'ok', MessageKey> = {
+const REASON_KEYS: Record<'no_plan' | 'no_coverage' | 'unavailable' | 'error' | 'ok', MessageKey> = {
   no_plan: 'reasonNoPlan',
   no_coverage: 'reasonNoCoverage',
+  unavailable: 'reasonUnavailable',
   error: 'reasonError',
   ok: 'available',
 };

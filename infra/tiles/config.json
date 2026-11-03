@@ -1,0 +1,25 @@
+{
+  "options": {
+    "paths": {
+      "root": "/data",
+      "fonts": "fonts",
+      "sprites": "styles",
+      "styles": "styles",
+      "mbtiles": "."
+    },
+    "serveAllFonts": true,
+    "serveAllStyles": true
+  },
+  "styles": {
+    "thailand": {
+      "style": "styles/thailand/style.json",
+      "serve_rendered": true,
+      "serve_data": true
+    }
+  },
+  "data": {
+    "tiles": {
+      "mbtiles": "tiles.mbtiles"
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { NOMINATIM_BASE_URL } from '../config.js';
 
 export interface GeocodingResult {
   lat: number;
@@ -66,12 +67,12 @@ export class NominatimGeocodingProvider implements GeocodingProvider {
   private queue: Promise<void> = Promise.resolve();
 
   constructor(options: {
-    baseUrl: string;
+    baseUrl?: string;
     userAgent: string;
     countryCodes?: string;
     fetchImpl?: typeof fetch;
   }) {
-    this.baseUrl = options.baseUrl.replace(/\/$/, '');
+    this.baseUrl = (options.baseUrl ?? NOMINATIM_BASE_URL).replace(/\/$/, '');
     this.userAgent = options.userAgent;
     this.countryCodes = options.countryCodes ?? 'th';
     this.fetchImpl = options.fetchImpl ?? fetch;

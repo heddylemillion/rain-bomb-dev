@@ -1,6 +1,7 @@
-import { Component, Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ErrorInfo, PropsWithChildren } from 'react';
 import L from 'leaflet';
+import { Map as MapLibreMap } from 'maplibre-gl';
 import {
   Circle,
   CircleMarker,
@@ -16,6 +17,7 @@ import {
   useMapEvents,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import type {
   Community,
   OverlayLayerId,
@@ -23,6 +25,7 @@ import type {
   SoilFeatureCollection,
   SoilInfo,
 } from '../../shared/contracts.js';
+import type { LightningSummary, StormTrackFeatureCollection } from '../../shared/providerContracts.js';
 import {
   activeCell,
   buildStormTrackAndCone,
@@ -38,6 +41,7 @@ import {
   type MockStormCell,
 } from '../../shared/mockWeatherScenario.js';
 import { useTranslation, type MessageKey } from '../i18n.js';
+import { getBasemapStyleUrl, OSM_RASTER_TILE_URL } from '../lib/basemap.js';
 import { LEVEL_KEYS, LEVEL_SYMBOL, worstLevel, type RiskLevel } from '../lib/risk.js';
 import { translateSoilName, translateSoilValue } from '../lib/soilLocalization.js';
 import { soilPathStyle } from '../lib/soilStyle.js';
@@ -58,7 +62,12 @@ interface MapCanvasProps {
   soilLayer: SoilFeatureCollection | null;
   selectedSoilKey: string | null;
   showSoilLayer: boolean;
-  radarHours: number;
+  radarFrameTime: number | null;
+  radarProviderId: 'rainviewer' | 'tmd' | 'mock';
+  radarMaxZoom: number;
+  lightningSummary: LightningSummary | null;
+  stormTracks: StormTrackFeatureCollection | null;
+  stormTrackProviderId: 'gdacs' | 'mock';
   mockMode: boolean;
   scenarioName: MockScenarioName;
   scenarioDate: string;
@@ -67,7 +76,7 @@ interface MapCanvasProps {
   stormConeKmPer30Min?: number;
   userPosition: UserPosition | null;
   onMapReady: (map: L.Map) => void;
-  onBaseTilesFailed: (failed: boolean) => void;
+  onBaseTilesFailed: (failed: boolean, fellBackToOsm?: boolean) => void;
   baseTileRetry: number;
 }
 
@@ -88,12 +97,6 @@ function bindSoilTooltip(
   const texture = translateSoilValue(feature.properties.textureTh, language, t);
   layer.bindTooltip(`${soilName} (${feature.properties.soilCode}) · ${texture}`);
 }
-
-const TILE_LAYER_CODE: Record<OverlayLayerId, string> = {
-  radar: 'radar-global',
-  lightning: 'lightning-flash',
-  storm: 'tropical-cyclones',
-};
 
 const mockTileFrames = new Map<string, Map<string, HTMLCanvasElement>>();
 const RADAR_TILE_SIZE = 256;
@@ -595,10 +598,6 @@ function MockLightningLayer({
   );
 }
 
-function rasterOffset(hours: number): string {
-  return hours === 0 ? 'current' : `${hours}hour`;
-}
-
 const iconCache = new Map<string, L.DivIcon>();
 
 function markerIcon(level: RiskLevel, selected: boolean): L.DivIcon {
@@ -795,6 +794,78 @@ function FollowSelection({
   return null;
 }
 
+function VectorBasemap({
+  styleUrl,
+  onLoad,
+  onFailure,
+}: {
+  styleUrl: string;
+  onLoad: () => void;
+  onFailure: () => void;
+}): null {
+  const leafletMap = useMap();
+
+  useEffect(() => {
+    const pane = leafletMap.createPane('vector-basemap');
+    pane.style.zIndex = '199';
+    pane.style.width = '100%';
+    pane.style.height = '100%';
+    pane.style.pointerEvents = 'none';
+    pane.replaceChildren();
+    const container = document.createElement('div');
+    container.style.width = '100%';
+    container.style.height = '100%';
+    container.style.pointerEvents = 'none';
+    pane.append(container);
+
+    const center = leafletMap.getCenter();
+    const map = new MapLibreMap({
+      container,
+      style: styleUrl,
+      center: [center.lng, center.lat],
+      zoom: leafletMap.getZoom(),
+      interactive: false,
+      attributionControl: false,
+      maxZoom: 19,
+    });
+    let failed = false;
+    const fail = (): void => {
+      if (failed) return;
+      failed = true;
+      onFailure();
+    };
+    const timeout = window.setTimeout(() => {
+      if (!map.isStyleLoaded()) fail();
+    }, 15_000);
+    map.once('load', () => {
+      window.clearTimeout(timeout);
+      onLoad();
+    });
+    map.on('error', () => {
+      if (!map.isStyleLoaded()) fail();
+    });
+    const syncView = (): void => {
+      const current = leafletMap.getCenter();
+      map.jumpTo({ center: [current.lng, current.lat], zoom: leafletMap.getZoom() });
+    };
+    const resize = (): void => {
+      map.resize();
+    };
+    leafletMap.on('move zoom', syncView);
+    leafletMap.on('resize', resize);
+
+    return () => {
+      window.clearTimeout(timeout);
+      leafletMap.off('move zoom', syncView);
+      leafletMap.off('resize', resize);
+      map.remove();
+      pane.replaceChildren();
+    };
+  }, [leafletMap, onFailure, onLoad, styleUrl]);
+
+  return null;
+}
+
 export function MapCanvas({
   communities,
   risks,
@@ -803,7 +874,12 @@ export function MapCanvas({
   onSelectCommunity,
   onMapPick,
   overlays,
-  radarHours,
+  radarFrameTime,
+  radarProviderId,
+  radarMaxZoom,
+  lightningSummary,
+  stormTracks,
+  stormTrackProviderId,
   mockMode,
   scenarioName,
   scenarioDate,
@@ -825,16 +901,29 @@ export function MapCanvas({
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     []
   );
-  const activeOverlayKey = [...overlays].sort().join(',');
   const scenario = useMemo(
     () => (mockMode ? createMockScenario(scenarioName, scenarioDate) : null),
     [mockMode, scenarioDate, scenarioName]
   );
-  const [tileRefreshVersion, setTileRefreshVersion] = useState<Record<OverlayLayerId, number>>({
-    radar: 0,
-    lightning: 0,
-    storm: 0,
-  });
+  const configuredStyleUrl = getBasemapStyleUrl(
+    import.meta.env.VITE_BASEMAP_PROVIDER,
+    import.meta.env.VITE_BASEMAP_STYLE_URL
+  );
+  const [baseStyleFailed, setBaseStyleFailed] = useState(!configuredStyleUrl);
+  const [radarRefreshVersion, setRadarRefreshVersion] = useState(0);
+
+  useEffect(() => {
+    setBaseStyleFailed(!configuredStyleUrl);
+    if (!configuredStyleUrl) onBaseTilesFailed(true, true);
+  }, [baseTileRetry, configuredStyleUrl, onBaseTilesFailed]);
+  const reportBaseStyleLoaded = useCallback(() => {
+    setBaseStyleFailed(false);
+    onBaseTilesFailed(false, false);
+  }, [onBaseTilesFailed]);
+  const reportBaseStyleFailure = useCallback(() => {
+    setBaseStyleFailed(true);
+    onBaseTilesFailed(true, true);
+  }, [onBaseTilesFailed]);
   const initialCenter = useMemo<[number, number]>(
     () =>
       communities[0]
@@ -846,55 +935,26 @@ export function MapCanvas({
   );
 
   useEffect(() => {
-    if (mockMode) return undefined;
-    const activeLayers = activeOverlayKey
-      .split(',')
-      .filter(
-        (layer): layer is OverlayLayerId =>
-          layer === 'radar' || layer === 'lightning' || layer === 'storm'
-      );
-    if (activeLayers.length === 0) return undefined;
-
-    let timers: number[] = [];
-    const clearTimers = (): void => {
-      timers.forEach((timer) => window.clearInterval(timer));
-      timers = [];
-    };
-    const startTimers = (): void => {
-      clearTimers();
-      if (document.visibilityState !== 'visible') return;
-      timers = activeLayers.map((layer) =>
-        window.setInterval(
-          () => {
-            setTileRefreshVersion((versions) => ({
-              ...versions,
-              [layer]: (versions[layer] ?? 0) + 1,
-            }));
-          },
-          layer === 'storm' ? 30 * 60 * 1000 : 5 * 60 * 1000
-        )
-      );
+    if (mockMode || !overlays.has('radar')) return undefined;
+    let timer: number | null = null;
+    const startTimer = (): void => {
+      if (timer !== null) window.clearInterval(timer);
+      timer = document.visibilityState === 'visible'
+        ? window.setInterval(() => setRadarRefreshVersion((version) => version + 1), 5 * 60 * 1000)
+        : null;
     };
     const onVisibilityChange = (): void => {
-      clearTimers();
-      if (document.visibilityState === 'visible') {
-        setTileRefreshVersion((versions) =>
-          activeLayers.reduce(
-            (next, layer) => ({ ...next, [layer]: (next[layer] ?? 0) + 1 }),
-            { ...versions }
-          )
-        );
-        startTimers();
-      }
+      if (document.visibilityState === 'visible') setRadarRefreshVersion((version) => version + 1);
+      startTimer();
     };
 
-    startTimers();
+    startTimer();
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
-      clearTimers();
+      if (timer !== null) window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [activeOverlayKey, mockMode]);
+  }, [mockMode, overlays]);
 
   const items = useMemo<MarkerItem[]>(
     () =>
@@ -925,31 +985,69 @@ export function MapCanvas({
         <SoilPane />
         <FollowSelection communities={communities} selectedCommunityId={selectedCommunityId} />
         <MapClickHandler onMapPick={onMapPick} />
-        <TileLayer
-          key={baseTileRetry}
-          url={import.meta.env.VITE_BASE_TILE_URL || '/api/map/tiles/{z}/{x}/{y}.png'}
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
-          maxZoom={19}
-          eventHandlers={{
-            tileerror: () => onBaseTilesFailed(true),
-          }}
-        />
+        {configuredStyleUrl && !baseStyleFailed ? (
+          <VectorBasemap
+            key={`${baseTileRetry}-${configuredStyleUrl}`}
+            styleUrl={configuredStyleUrl}
+            onLoad={reportBaseStyleLoaded}
+            onFailure={reportBaseStyleFailure}
+          />
+        ) : (
+          <TileLayer
+            key={`osm-fallback-${baseTileRetry}`}
+            url={OSM_RASTER_TILE_URL}
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+            maxZoom={19}
+            eventHandlers={{
+              tileerror: () => onBaseTilesFailed(true, true),
+            }}
+          />
+        )}
         {!mockMode &&
-          [...overlays].map((layer) => (
+          [...overlays].map((layer) => {
+            if (layer === 'radar' && radarFrameTime === null) return null;
+            if (layer !== 'radar') return null;
+            const tileUrl = `/api/radar/tiles/{z}/{x}/{y}/${radarFrameTime}.png`;
+            return (
             <MapOverlayErrorBoundary key={layer} fallback={t('mapOverlayError')}>
               <TileLayer
-                key={`${layer}-${tileRefreshVersion[layer]}`}
-                url={`/api/tiles/${TILE_LAYER_CODE[layer]}/{z}/{x}/{y}/${
-                  layer === 'radar' ? rasterOffset(radarHours) : 'current'
-                }.png`}
+                key={`${layer}-${radarRefreshVersion}-${radarProviderId}-${radarFrameTime}`}
+                url={tileUrl}
                 opacity={layer === 'radar' ? radarOpacity : 0.9}
                 zIndex={OVERLAY_Z[layer]}
-                maxNativeZoom={12}
+                maxNativeZoom={layer === 'radar' ? radarMaxZoom : 12}
                 maxZoom={19}
                 errorTileUrl={BLANK_TILE}
               />
             </MapOverlayErrorBoundary>
-          ))}
+            );
+          })}
+        {!mockMode && overlays.has('storm') && stormTrackProviderId === 'gdacs' && stormTracks && (
+          <GeoJSON
+            data={stormTracks}
+            style={(feature) => ({
+              color: feature?.geometry.type === 'Polygon' ? '#f97316' : '#facc15',
+              weight: feature?.geometry.type === 'Polygon' ? 1.5 : 3,
+              fillColor: '#f97316',
+              fillOpacity: 0.12,
+            })}
+          />
+        )}
+        {!mockMode && overlays.has('lightning') &&
+          userPosition && lightningSummary?.count30min !== null &&
+          lightningSummary?.count30min !== undefined && (
+            <CircleMarker
+              center={[userPosition.lat, userPosition.lon]}
+              radius={12}
+              pathOptions={{ color: '#facc15', fillColor: '#facc15', fillOpacity: 0.7 }}
+            >
+              <Tooltip direction="top" className="glass-leaflet-tooltip">
+                ⚡ {lightningSummary.count30min} · {lightningSummary.nearestStrikeKm === null
+                  ? 'ไม่พบจุดฟ้าผ่าใน 30 นาที'
+                  : `ใกล้สุด ${lightningSummary.nearestStrikeKm.toFixed(1)} กม.`}
+              </Tooltip>
+            </CircleMarker>
+          )}
         {mockMode && scenario && overlays.has('radar') && (
           <MapOverlayErrorBoundary fallback={t('mapOverlayError')}>
             <MockRadarOverlay

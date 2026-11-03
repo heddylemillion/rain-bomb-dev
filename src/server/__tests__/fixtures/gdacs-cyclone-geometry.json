@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[100, 13], [101, 14], [102, 15]]
+      },
+      "properties": { "polygonlabel": "Observed Track" }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[100, 13], [101, 13], [101, 14], [100, 13]]]
+      },
+      "properties": { "polygonlabel": "Uncertainty Cone" }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[90, 8], [91, 8], [91, 9], [90, 8]]]
+      },
+      "properties": { "polygonlabel": "Wind Field" }
+    }
+  ]
+}

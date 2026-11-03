@@ -1,6 +1,13 @@
 import fs from 'node:fs/promises';
+import { z } from 'zod';
+import { CommunitySchema } from '../../shared/contracts.js';
 import { COMMUNITIES_CONFIG_PATH } from '../config.js';
-import { CommunitiesFileSchema, type CommunityConfig } from '../types/weather.js';
+
+const CommunitiesFileSchema = z.object({
+  _comment: z.string().optional(),
+  communities: z.array(CommunitySchema),
+});
+type CommunityConfig = z.infer<typeof CommunitySchema>;
 
 let cachedCommunities: CommunityConfig[] | null = null;
 

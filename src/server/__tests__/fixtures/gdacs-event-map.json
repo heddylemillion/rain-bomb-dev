@@ -1,0 +1,27 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [100.5, 13.5] },
+      "properties": {
+        "eventtype": "TC",
+        "eventid": 1234567,
+        "episodeid": 1,
+        "eventname": "Test Cyclone",
+        "iscurrent": "true"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": { "type": "Point", "coordinates": [101, 14] },
+      "properties": {
+        "eventtype": "TC",
+        "eventid": 7654321,
+        "episodeid": 1,
+        "eventname": "Inactive Cyclone",
+        "iscurrent": "true"
+      }
+    }
+  ]
+}

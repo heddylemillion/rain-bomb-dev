@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { LocateFixed, Minus, Pause, Play, Plus } from 'lucide-react';
-import type { Capability, OverlayLayerId } from '../../shared/contracts.js';
+import type { OverlayLayerId, RiskDataReason } from '../../shared/contracts.js';
+import type { RadarFrame } from '../../shared/providerContracts.js';
 import { useTranslation } from '../i18n.js';
 import { GlassTooltip, useAccessibleTooltip } from './GlassTooltip.js';
 
@@ -9,7 +10,7 @@ export type MapLayerId = 'risk' | OverlayLayerId;
 export interface LayerAvailability {
   id: MapLayerId;
   available: boolean;
-  reason: Capability['reason'];
+  reason: RiskDataReason | 'mock';
   updatedAt: string | null;
   mock?: boolean;
 }
@@ -97,12 +98,16 @@ export function RadarSlider({
   mockMode,
   minutes,
   onMinutesChange,
-  onHoursChange,
+  frames = [],
+  selectedFrameTime,
+  onFrameTimeChange,
 }: {
   mockMode: boolean;
   minutes: number;
   onMinutesChange: (minutes: number) => void;
-  onHoursChange: (hours: number) => void;
+  frames?: RadarFrame[];
+  selectedFrameTime?: number | null;
+  onFrameTimeChange?: (time: number) => void;
 }): React.ReactNode {
   const { t, language } = useTranslation();
   const [playing, setPlaying] = useState(false);
@@ -113,6 +118,10 @@ export function RadarSlider({
 
   // Live mode has no verified radar forecast frames, so future segment is hidden (max = 0).
   const hasForecast = mockMode;
+  const frameMode = !mockMode;
+  const frameIndex = Math.max(0, frames.findIndex((frame) => frame.time === selectedFrameTime));
+  const frameIndexRef = useRef(frameIndex);
+  frameIndexRef.current = frameIndex;
   const maxMin = hasForecast ? 180 : 0;
   const clampedMinutes = Math.max(-180, Math.min(maxMin, Math.round(minutes / 10) * 10));
   const minutesRef = useRef(clampedMinutes);
@@ -121,9 +130,8 @@ export function RadarSlider({
   useEffect(() => {
     if (!hasForecast && minutes > 0) {
       onMinutesChange(0);
-      onHoursChange(0);
     }
-  }, [hasForecast, minutes, onHoursChange, onMinutesChange]);
+  }, [hasForecast, minutes, onMinutesChange]);
 
   useEffect(() => {
     const updateVisibility = (): void => setVisible(document.visibilityState === 'visible');
@@ -142,26 +150,44 @@ export function RadarSlider({
 
   useEffect(() => {
     if (!playing || !visible || reduceMotion) return undefined;
+    if (frameMode) {
+      if (frames.length === 0 || !onFrameTimeChange) return undefined;
+      const timer = window.setInterval(() => {
+        const nextIndex = (frameIndexRef.current + 1) % frames.length;
+        frameIndexRef.current = nextIndex;
+        const frame = frames[nextIndex];
+        if (frame) onFrameTimeChange(frame.time);
+      }, PLAY_INTERVAL_MS);
+      return () => window.clearInterval(timer);
+    }
     const timer = window.setInterval(() => {
       const next = minutesRef.current + 10 > maxMin ? -180 : minutesRef.current + 10;
       onMinutesChange(next);
-      onHoursChange(Math.max(-3, Math.min(0, Math.round(next / 60))));
     }, PLAY_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [maxMin, onHoursChange, onMinutesChange, playing, reduceMotion, visible]);
+  }, [frameMode, frames, maxMin, onFrameTimeChange, onMinutesChange, playing, reduceMotion, visible]);
 
+  const activeFrame = frameMode ? frames[frameIndex] : undefined;
   const frameClock = new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
     hour: '2-digit',
     minute: '2-digit',
     timeZone: 'Asia/Bangkok',
-  }).format(new Date(Date.now() + clampedMinutes * 60_000));
+  }).format(new Date(activeFrame ? activeFrame.time * 1000 : Date.now() + clampedMinutes * 60_000));
 
-  const offsetText =
-    clampedMinutes === 0
+  const frameOffsetMin = activeFrame && frames.length > 0
+    ? Math.max(0, Math.round(((frames.at(-1)?.time ?? activeFrame.time) - activeFrame.time) / 60))
+    : null;
+  const offsetText = frameMode
+    ? frameOffsetMin === null || frameOffsetMin === 0
+      ? t('timeNow')
+      : `−${frameOffsetMin} ${language === 'th' ? 'นาที' : 'min'}`
+    : clampedMinutes === 0
       ? t('timeNow')
       : `${clampedMinutes > 0 ? '+' : '−'}${Math.abs(clampedMinutes)} ${language === 'th' ? 'นาที' : 'min'}`;
 
-  const pastFillPct = hasForecast
+  const pastFillPct = frameMode
+    ? frames.length <= 1 ? 100 : frameIndex / (frames.length - 1) * 100
+    : hasForecast
     ? Math.min(50, ((clampedMinutes + 180) / 360) * 100)
     : ((clampedMinutes + 180) / 180) * 100;
   const futureFillPct =
@@ -176,7 +202,7 @@ export function RadarSlider({
         <button
           type="button"
           aria-pressed={playing}
-          disabled={reduceMotion}
+          disabled={reduceMotion || (frameMode && frames.length === 0)}
           onClick={() => setPlaying((current) => !current)}
           className={`glass-control-btn min-h-[44px] min-w-[74px] sm:min-w-[82px] px-2.5 sm:px-3 rounded-xl inline-flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold shrink-0 ${
             playing ? 'glass-control-active' : ''
@@ -243,24 +269,29 @@ export function RadarSlider({
             <span
               aria-hidden="true"
               className="timeline-now-pin pointer-events-none"
-              style={{ left: hasForecast ? '50%' : '100%' }}
+              style={{ left: hasForecast ? '50%' : frameMode ? `${pastFillPct}%` : '100%' }}
             />
 
             <input
               id="radar-time"
               type="range"
-              min={-180}
-              max={maxMin}
-              step={10}
-              value={clampedMinutes}
+              min={frameMode ? 0 : -180}
+              max={frameMode ? Math.max(0, frames.length - 1) : maxMin}
+              step={frameMode ? 1 : 10}
+              value={frameMode ? frameIndex : clampedMinutes}
+              disabled={frameMode && frames.length === 0}
               aria-valuetext={`${frameClock} · ${offsetText}${
                 hasForecast && clampedMinutes > 0 ? ` · ${t('radarForecastSimulated')}` : ''
               }`}
               onChange={(event) => {
                 setPlaying(false);
                 const next = Number(event.target.value);
-                onMinutesChange(next);
-                onHoursChange(Math.max(-3, Math.min(0, Math.round(next / 60))));
+                if (frameMode) {
+                  const frame = frames[next];
+                  if (frame) onFrameTimeChange?.(frame.time);
+                } else {
+                  onMinutesChange(next);
+                }
               }}
               className="timeline-range-input absolute inset-0 w-full h-full m-0 cursor-pointer"
             />
@@ -277,6 +308,24 @@ export function RadarSlider({
                   {t('timeNow')}
                 </span>
                 <span>{t('timeNext3')}</span>
+              </>
+            ) : frameMode ? (
+              <>
+                <span>{frames[0] ? new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  timeZone: 'Asia/Bangkok',
+                }).format(new Date(frames[0].time * 1000)) : t('timePast3')}</span>
+                <span>{frames[Math.floor(frames.length / 2)] ? new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  timeZone: 'Asia/Bangkok',
+                }).format(new Date(frames[Math.floor(frames.length / 2)]!.time * 1000)) : t('timePast1')}</span>
+                <span>{frames.at(-1) ? new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  timeZone: 'Asia/Bangkok',
+                }).format(new Date(frames.at(-1)!.time * 1000)) : t('timeNow')}</span>
               </>
             ) : (
               <>

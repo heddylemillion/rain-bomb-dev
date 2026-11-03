@@ -10,7 +10,7 @@ import {
 const sourceInput = (id: RiskInput['id'], rawValue: number): RiskInput => ({
   id,
   rawValue,
-  source: 'Xweather',
+  source: 'Open-Meteo',
   observedAt: '2026-10-28T07:00:00.000Z',
 });
 

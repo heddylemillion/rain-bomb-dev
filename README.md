@@ -3,183 +3,99 @@
 Rain Burst is an accessible, Thai-first decision-support map for rainfall and
 flood risk. It is not an official warning service.
 
-## Run the API and dashboard
-
-Install dependencies with `npm install`, then start the API and dashboard in
-separate terminals:
+## Run locally
 
 ```sh
+npm install
+cp .env.example .env
 npm run dev
 npm run dev:web
 ```
 
-The API listens on port `3001` by default. Vite serves the dashboard on port
-`5173` and proxies `/api/*` requests to that API. Xweather credentials are
-server-only; never add them to frontend configuration.
+The API listens on port `3001`; Vite serves the dashboard on port `5173` and
+proxies `/api/*` to the API. The server also starts with an empty `.env`.
+`NOMINATIM_BASE_URL` is fixed in source code; only code and tests can override
+it. Do not put backend-only settings in Vite variables.
 
-Set `XWEATHER_CLIENT_ID` and `XWEATHER_CLIENT_SECRET` in `.env`. An optional
-`XWEATHER_NAMESPACE` may be required by your account. Configure a valid
-`NOMINATIM_USER_AGENT` with a contact address before using public
-OpenStreetMap Nominatim geocoding. `DEMO_MODE` defaults to `false`; when set
-to `true`, a persistent Thai demo-mode banner is shown. Saved Xweather
-responses are used as test fixtures.
+The default basemap is OpenFreeMap Liberty. Set
+`VITE_BASEMAP_PROVIDER=selfhosted` and
+`VITE_BASEMAP_STYLE_URL=http://localhost:8080/styles/<id>/style.json` to use
+the optional [self-hosted Thailand tile pipeline](./infra/tiles/README.md).
+The app falls back to its fixed OpenStreetMap raster URL only when the selected
+style fails to load.
 
-Open-Meteo providers are controlled on the backend by `DATA_MODE=mock|live|cache`
-(default `mock`). Mock mode returns deterministic, visibly simulated provider
-data and makes no requests to Open-Meteo, Xweather, or Nominatim hosts. The
-OpenStreetMap basemap is real in every data mode and is fetched through the
-backend tile proxy; set `VITE_BASE_TILE_URL` to override its URL template.
-Location search in mock mode uses only configured pilot communities and reverse
-geocoding returns no result. Live mode queries providers, while cache mode never
-makes an upstream request for weather data. Elevation values are stored permanently
-in the ignored `data/elevation-cache.json` file by ~100 m coordinate cell;
-Marine forecasts are cached for 45 minutes in `data/marine-cache.json`. Missing,
-invalid, and failed values remain missing rather than being replaced with
-estimates. `OPEN_METEO_API_KEY` is a backend-only optional key for commercial
-use; `OPEN_METEO_COMMERCIAL` defaults to `false`.
+## Data modes and providers
 
-**Open-Meteo's free API is for non-commercial use only.** Commercial use requires
-an appropriate Open-Meteo commercial plan and credentials. Review the current
-[Open-Meteo pricing and terms](https://open-meteo.com/en/pricing) before
-deployment.
+`DATA_MODE` defaults to `mock`; provider-specific `RADAR_MODE`,
+`LIGHTNING_MODE`, and `STORM_TRACK_MODE` can override it with `live`, `mock`,
+or `cache`. The provider defaults are RainViewer radar, no lightning provider,
+and GDACS storm tracks. In mock mode, all provider adapters and server-side
+weather data are local and make no outbound requests. Mock lightning is a
+visual simulation and is not passed into live risk inputs. In live mode,
+lightning is unavailable until a provider is configured; the map says
+`ไม่มีผู้ให้บริการฟ้าผ่า`, and the risk model excludes that factor and
+renormalizes the remaining weights, lowering confidence.
 
-## Live data, availability, and risk
+The system-status page reports provider mode, coverage test, last success,
+quota use, attribution, and licence limits.
 
-`GET /api/capabilities` probes Xweather endpoints and raster tiles using the
-configured account. `available` means that the request was authorized; it
-does not prove that a raster tile contains data over Thailand. `no_plan`,
-`no_coverage`, and `error` are reported separately where the provider response
-allows that distinction. These real checks and provider-backed layers are used
-only in live mode; their behavior is unchanged by the mock implementation. In
-mock mode, radar, lightning, storms, and risk are returned as available with
-`mock: true` and `reason: "mock"` without contacting Xweather.
+- **RainViewer** supplies historical radar frames only, to zoom 7; no
+  nowcast/future or satellite frames are requested. The backend radar proxy
+  caches tiles for at least five minutes and limits traffic to 100 requests per
+  IP per minute. Empty Thailand coverage is reported as
+  `ไม่มีข้อมูลเรดาร์ในพื้นที่นี้`; live radar is never fabricated. Keep linked
+  attribution **Weather data by RainViewer**. Review the current
+  [API documentation](https://rainviewer.com/api.html) and
+  [terms](https://www.rainviewer.com/terms.html) before deployment. RainViewer
+  free-tier use is non-commercial and limited to personal/community purposes;
+  treat the feed as informational, not as an official warning source.
+- **TMD** is a no-network stub. Do not scrape TMD websites. Request approved
+  feeds and redistribution terms first; see [docs/tmd-request.md](./docs/tmd-request.md).
+- **GDACS** provides active tropical-cyclone tracks and forecast cones, cached
+  for 30 minutes. Retain the linked attribution **GDACS (EC-JRC / UN OCHA)**;
+  it is situational-awareness information, not an official local warning.
+- **Open-Meteo** provides live forecast, elevation, and marine context. Its
+  free API tier is for non-commercial use; commercial use requires an
+  appropriate plan. Review the
+  [pricing and terms](https://open-meteo.com/en/pricing) before deployment.
+  Open-Meteo marine values are model forecasts at configured reference points,
+  not local tide observations. Elevation is static and is not flood depth.
 
-### Deterministic mock weather overlays
+## Risk model and local context
 
-The map enables local canvas radar, lightning, and storm overlays by default
-in mock mode. Choose `calm`, `moderate`, or `burst` from the demo control, or
-set `?scenario=calm|moderate|burst`. The same scenario is used for the layers,
-the timeline, and risk inputs; each is seeded by its name and UTC date. The
-timeline spans −3 to +3 hours in 10-minute steps. It uses 16 world-fixed cells
-around central Thailand. The central cell is anchored near
-13.7563,100.5018; its peak rates are 0.8, 12, and 82 mm/h for calm, moderate,
-and burst, respectively. Surrounding cell peaks are seeded within 0.25–1.0 of
-1.4, 11, and 58 mm/h. Cell radii are 5–19 km (14 km for the central cell),
-movement is seeded at 5–23 km/h (2 km/h for the central cell), and the
-intensity uses a Gaussian core with a 45-minute growth and 60-minute decay
-envelope. No values are sourced from observations. The mock risk inputs are
-derived from these cells and strikes and then evaluated by the same configured
-risk engine used for live data; scenario levels are covered by tests at the
-default demo point.
+`GET /api/risk?lat=...&lon=...` accepts Thailand coordinates. The weighted
+linear model and thresholds are in `config/risk.json`, marked **TO BE
+CALIBRATED**; they have not been calibrated against Thai flood events. Missing
+factors stay unavailable rather than being replaced with zero. When less than
+40% of factor weight is available, the response is `INSUFFICIENT`; otherwise
+the score renormalizes over available factors and confidence reflects missing
+weight.
 
-The mock basemap is intentionally plain to avoid even tile-host requests.
-Overlay legends and the scenario selector are in the layer panel; the panel
-and timeline are keyboard accessible. A visible demo banner and map badge
-identify simulated content.
+Mock scenarios (`calm`, `moderate`, and `burst`) are deterministic for the
+scenario/date and drive only mock overlays and mock risk results. The scenario
+selector and timeline are available in mock mode.
 
-`GET /api/risk?lat=...&lon=...` accepts points within Thailand and rounds
-coordinates to two decimal places for cache keys. It gathers conditions,
-observations, hourly forecasts, archive observations, lightning, and alerts
-independently. Failed sources remain unavailable; the service never fills
-missing inputs with zero. Successful per-source responses are cached according
-to source refresh intervals and may be shown as stale for at most 30 minutes.
-The response includes the inputs, normalized factors, weights, confidence,
-missing-source reasons, and fetch/observation times.
+`GET /api/environment` supplies elevation and offshore marine context. Marine
+datum is global mean sea level, not Thai รทก. or chart datum; inland values are
+not representative of local water level and must not be used for navigation.
+The `tideFactor` remains disabled until validated against observations.
 
-The weighted linear risk model and thresholds are in `config/risk.json`.
-They are explicitly marked **TO BE CALIBRATED** and are not calibrated against
-Thai flood events. Site-specific elevation, soil, drainage, and canal factors
-are not configured and are not inferred. When fewer than 40% of factor weights
-are available, the API returns `INSUFFICIENT` rather than a score.
+The soil layer contains Land Development Department soil-series data for
+Pathum Thani. It is area-level context, not a street-level survey or risk
+input. Confirm the dataset's redistribution terms before republishing it.
 
-### Why a result may say "Low"
+## Attribution
 
-คะแนน 0–100 มาจากปัจจัยอากาศ 8 ค่า ไม่ใช่ข้อมูลดินหรือความสูง: ระบบปรับแต่ละค่า
-เป็นสัดส่วน 0–1 ตามช่วงใน `config/risk.json` แล้วคูณน้ำหนักและรวมกัน
-(ฝนรายชั่วโมงสูงสุดใน 3 ชั่วโมงมีน้ำหนัก 25%; ฝนปัจจุบัน 10%;
-ฝนสะสม 3/24 ชั่วโมงอย่างละ 15%/10%; โอกาสฝน 10%; ฟ้าผ่า 15%;
-ความกดอากาศ 10%; ความชื้น 5%). คะแนนต่ำกว่า 35 คือ **ต่ำ**, 35–64 คือ
-**ปานกลาง**, และตั้งแต่ 65 คือ **สูง**. ฟ้าผ่าใกล้จุดหรือประกาศเตือนอาจยกระดับ
-ผลลัพธ์ได้; หากข้อมูลที่ใช้ได้มีน้ำหนักรวมต่ำกว่า 40% จะแสดงว่าไม่เพียงพอ
-แทนการสร้างคะแนน.
+The app credits OpenFreeMap/OpenMapTiles, OpenStreetMap contributors,
+Open-Meteo, RainViewer, and GDACS where their data is used. Retain provider
+attribution and review each provider's current licence and usage limits before
+public or commercial deployment.
 
-ตัวอย่างจากการทดสอบโหมดจำลอง `moderate` ที่จุด 14.0746, 100.7893: ฝนปัจจุบัน
-10.2 มม./ชม. และฝนรายชั่วโมงสูงสุด 10.2 มม./ชม. ให้คะแนนถ่วงน้ำหนักประมาณ 2.9
-และ 2.9; ฝนสะสม 3 ชั่วโมง 9.8 มม. และ 24 ชั่วโมง 11.5 มม. ต่ำกว่าช่วงเริ่มต้น
-จึงได้ 0; โอกาสฝน 38% ได้ประมาณ 1.3, ฟ้าผ่า 2 ครั้งได้ 0.8, ความกดอากาศลดลง
-1.1 hPa ได้ 0.3 และความชื้น 77% ได้ 1.4. รวมประมาณ 10 จึงต่ำกว่าเกณฑ์ 35.
-นี่เป็นเพียงตัวอย่างข้อมูลจำลอง ไม่ใช่สภาพอากาศจริงหรือประกาศเตือนภัย.
+## Checks
 
-`GET /api/environment?lat=...&lon=...` returns approximate Copernicus DEM GLO-90
-elevation and Marine forecast context. Elevation is static and is not flood
-depth. Marine data is modeled forecast data from an explicit offshore reference
-point, not an observation at the selected location. Its datum is global mean
-sea level, not Thai รทก. or chart datum; coastal accuracy is limited, inland
-points are unreliable, and it is not for navigation. Sea level is not
-subtracted from elevation and is not an input to the risk score. The
-`tideFactor` remains at weight 0 until validated against observed data. Marine
-refreshes are paused while the browser tab is hidden.
-
-The Soil type layer uses Land Development Department (LDD) soil-series data for
-Pathum Thani and is off by default. Toggle **Soil type** in the map layer panel;
-hover a polygon for its soil-series label and click it to select the location.
-The selected polygon is highlighted with a white outline.
-`GET /api/soil?lat=...&lon=...` returns the selected point's soil details, and
-`GET /api/soil/layer` returns the GeoJSON layer. This mapping is
-district-by-soil-series scale, not a point- or street-level survey, and is
-displayed for context only; it is not used by the risk score. Drainage data has
-not been verified, so `drainageClass` intentionally remains `null` and is
-displayed as no data. Confirm the LDD dataset's rights and terms for public
-redistribution before publishing the repository or data publicly.
-
-The backend's existing shared API limiter allows 120 `/api` requests per
-15-minute window. Open-Meteo publishes free-tier limits of 600 requests/minute,
-5,000/hour, 10,000/day, and 300,000/month; upstream limits were not
-load-tested by this application.
-
-The live-mode official Xweather plan probe currently reports `no_plan` for observations,
-forecasts, archive history, lightning, alerts, radar tiles, and tropical
-cyclone tiles. Xweather documents `radar-global` as global and updated every
-two minutes; `radar` does not list Thailand among its regions. A successful
-raster authorization probe still would not prove pixels are present over
-Thailand. The time-offset documentation supports `current` and relative
-negative hours, but the selected frames and actual frame timestamps have not
-been verified against this account. The radar UI is available only when the
-capability endpoint reports access.
-
-The browser uses the backend OSM tile proxy at `/api/map/tiles/*` in all data
-modes, with visible OpenStreetMap attribution. In live mode, Xweather map
-credentials are added only by the server and its map attribution is displayed.
-In mock mode, synthetic weather layers are labeled as simulated.
-
-## Open-Meteo verification and attribution
-
-The official [Elevation API documentation](https://open-meteo.com/en/docs/elevation-api)
-confirms comma-separated latitude/longitude arrays, a maximum of 100 locations
-per request, and an always-array `elevation` response based on Copernicus DEM
-GLO-90 (~90 m). The official
-[Marine API documentation](https://open-meteo.com/en/docs/marine-weather-api)
-confirms `/v1/marine`, `hourly=sea_level_height_msl,wave_height`,
-`forecast_days=3`, and `timezone=Asia/Bangkok`.
-
-Live Marine API requests were checked on 2026-10-29 using those parameters.
-Each candidate returned non-null `sea_level_height_msl` values:
-
-| Configured reference point | Requested coordinate | Result |
-|---|---:|---|
-| อ่าวไทยตอนบน ใกล้ปากแม่น้ำเจ้าพระยา | 13.45, 100.60 | Returned non-null forecast |
-| อ่าวไทย ใกล้ชายฝั่งชลบุรี | 13.20, 100.55 | Returned non-null forecast |
-| อ่าวไทย ใกล้ชายฝั่งพัทยา | 12.90, 100.75 | Returned non-null forecast |
-| อ่าวไทย ใกล้สัตหีบ | 12.50, 100.50 | Returned non-null forecast |
-
-The Open-Meteo Elevation endpoint was also checked live at 14.065, 100.6186
-and returned `{"elevation":[9.0]}`. These checks verify endpoint behavior and
-that these specific Marine coordinates returned data at that time. They do
-**not** verify Thailand sea-coverage accuracy, agreement with observed tide
-gauges, fitness of a reference point for any particular community, or
-free-tier rate-limit enforcement under load. The four Marine points are
-illustrative water reference points; inland locations, including Khlong Luang,
-query a configured offshore reference point instead of their own coordinates.
-
-The footer and area details panel attribute elevation to **Copernicus Programme
-(DEM)** and **Open-Meteo**, and marine data to **Open-Meteo** and **DWD**.
+```sh
+npm run typecheck
+npm test
+npm run build:web
+npm run test:layout
+```

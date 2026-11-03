@@ -43,16 +43,16 @@ describe('geocoding address field', () => {
   });
 });
 
-describe('/api/reverse-geocode in mock mode', () => {
+describe('/api/reverse-geocode', () => {
   const provider = (): { value: GeocodingProvider; reverse: ReturnType<typeof vi.fn> } => {
     const reverse = vi.fn(async () => sampleResult);
     return { value: { search: async () => [], reverse }, reverse };
   };
 
-  it('returns null without calling the geocoder when GEOCODING_IN_MOCK is off', async () => {
+  it('returns null without calling the geocoder in mock mode', async () => {
     const { value, reverse } = provider();
     const app = createApp({
-      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'mock', GEOCODING_IN_MOCK: 'false' }),
+      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'mock' }),
       geocodingProvider: value,
     });
     const response = await request(app).get('/api/reverse-geocode?lat=13.75&lon=100.5');
@@ -61,14 +61,10 @@ describe('/api/reverse-geocode in mock mode', () => {
     expect(reverse).not.toHaveBeenCalled();
   });
 
-  it('defaults to off when the flag is unset', () => {
-    expect(loadConfig({ NODE_ENV: 'test' }).geocoding.allowInMock).toBe(false);
-  });
-
-  it('calls the geocoder and returns the address when GEOCODING_IN_MOCK is on', async () => {
+  it('calls the geocoder in live mode and returns the address', async () => {
     const { value, reverse } = provider();
     const app = createApp({
-      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'mock', GEOCODING_IN_MOCK: 'true' }),
+      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'live' }),
       geocodingProvider: value,
     });
     const response = await request(app).get('/api/reverse-geocode?lat=13.75&lon=100.5');
@@ -77,14 +73,4 @@ describe('/api/reverse-geocode in mock mode', () => {
     expect(reverse).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps weather providers unreachable in mock mode even with the flag on', async () => {
-    const { value } = provider();
-    const app = createApp({
-      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'mock', GEOCODING_IN_MOCK: 'true' }),
-      geocodingProvider: value,
-    });
-    const weather = await request(app).get('/api/weather/any-community');
-    expect(weather.status).toBe(503);
-    expect(weather.body.error.code).toBe('MOCK_WEATHER_UNAVAILABLE');
-  });
 });

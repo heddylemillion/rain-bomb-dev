@@ -1,0 +1,27 @@
+services:
+  tileserver:
+    image: maptiler/tileserver-gl:latest
+    command: ["--public_url", "${TILESERVER_PUBLIC_URL:-http://localhost:8080/}"]
+    volumes:
+      - ./config.json:/data/config.json:ro
+      - ./data/tiles.mbtiles:/data/tiles.mbtiles:ro
+      - ./style:/data/styles/thailand:ro
+      - ./fonts:/data/fonts:ro
+    expose:
+      - "8080"
+    environment:
+      TILESERVER_GL_ALLOWED_HOSTS: "${TILESERVER_ALLOWED_HOSTS:-localhost,127.0.0.1}"
+    restart: unless-stopped
+
+  cors-proxy:
+    image: nginx:1.27-alpine
+    depends_on:
+      - tileserver
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      TILE_CORS_PRODUCTION_ORIGIN: "${TILE_CORS_PRODUCTION_ORIGIN:-}"
+      NGINX_ENVSUBST_FILTER: TILE_CORS_PRODUCTION_ORIGIN
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    restart: unless-stopped

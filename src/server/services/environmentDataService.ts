@@ -43,8 +43,6 @@ interface MarineCacheFile {
 
 export interface EnvironmentProviderOptions {
   mode: DataMode;
-  apiKey?: string;
-  commercial?: boolean;
   timeoutMs?: number;
   fetcher?: typeof fetch;
   elevationCache?: PermanentElevationCache;
@@ -109,14 +107,11 @@ function thaiHourISO(value: string): string | null {
 
 function makeApiUrl(
   base: string,
-  points: ReadonlyArray<Coordinates>,
-  apiKey: string | undefined,
-  commercial: boolean | undefined
+  points: ReadonlyArray<Coordinates>
 ): URL {
   const url = new URL(base);
   url.searchParams.set('latitude', points.map((point) => point.latitude).join(','));
   url.searchParams.set('longitude', points.map((point) => point.longitude).join(','));
-  if (commercial && apiKey) url.searchParams.set('apikey', apiKey);
   return url;
 }
 
@@ -141,8 +136,6 @@ async function fetchResponse(
 
 export class OpenMeteoElevationProvider implements ElevationProvider {
   private readonly mode: DataMode;
-  private readonly apiKey: string | undefined;
-  private readonly commercial: boolean;
   private readonly timeoutMs: number;
   private readonly fetcher: typeof fetch;
   private readonly cache: PermanentElevationCache;
@@ -150,8 +143,6 @@ export class OpenMeteoElevationProvider implements ElevationProvider {
 
   constructor(options: EnvironmentProviderOptions) {
     this.mode = options.mode;
-    this.apiKey = options.apiKey;
-    this.commercial = options.commercial ?? false;
     this.timeoutMs = options.timeoutMs ?? 8000;
     this.fetcher = options.fetcher ?? fetch;
     this.cache = options.elevationCache ??
@@ -221,12 +212,8 @@ export class OpenMeteoElevationProvider implements ElevationProvider {
     let batchResults: ElevationResult[];
     try {
       const url = makeApiUrl(
-        this.commercial
-          ? 'https://customer-api.open-meteo.com/v1/elevation'
-          : 'https://api.open-meteo.com/v1/elevation',
-        cells.map(({ latitude, longitude }) => ({ latitude, longitude })),
-        this.apiKey,
-        this.commercial
+        'https://api.open-meteo.com/v1/elevation',
+        cells.map(({ latitude, longitude }) => ({ latitude, longitude }))
       );
       const response = await fetchResponse(url, this.fetcher, this.timeoutMs);
       if (!response.ok) {
@@ -325,8 +312,6 @@ class MarineForecastCache {
 
 export class OpenMeteoMarineProvider implements MarineProvider {
   private readonly mode: DataMode;
-  private readonly apiKey: string | undefined;
-  private readonly commercial: boolean;
   private readonly timeoutMs: number;
   private readonly fetcher: typeof fetch;
   private readonly cache: MarineForecastCache;
@@ -334,8 +319,6 @@ export class OpenMeteoMarineProvider implements MarineProvider {
 
   constructor(options: EnvironmentProviderOptions) {
     this.mode = options.mode;
-    this.apiKey = options.apiKey;
-    this.commercial = options.commercial ?? false;
     this.timeoutMs = options.timeoutMs ?? 8000;
     this.fetcher = options.fetcher ?? fetch;
     this.cache = new MarineForecastCache(options.marineCachePath);
@@ -373,15 +356,12 @@ export class OpenMeteoMarineProvider implements MarineProvider {
     }
 
     try {
-      const url = new URL(this.commercial
-        ? 'https://customer-marine-api.open-meteo.com/v1/marine'
-        : 'https://marine-api.open-meteo.com/v1/marine');
+      const url = new URL('https://marine-api.open-meteo.com/v1/marine');
       url.searchParams.set('latitude', String(point.lat));
       url.searchParams.set('longitude', String(point.lon));
       url.searchParams.set('hourly', 'sea_level_height_msl,wave_height');
       url.searchParams.set('forecast_days', '3');
       url.searchParams.set('timezone', 'Asia/Bangkok');
-      if (this.commercial && this.apiKey) url.searchParams.set('apikey', this.apiKey);
 
       const response = await fetchResponse(url, this.fetcher, this.timeoutMs);
       if (!response.ok) {

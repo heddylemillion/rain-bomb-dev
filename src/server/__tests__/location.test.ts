@@ -4,6 +4,8 @@ import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { PointQuerySchema, GeocodeQuerySchema } from '../routes/api.js';
 import type { GeocodingProvider } from '../services/geocodingProvider.js';
+import { RiskDataService } from '../services/riskDataService.js';
+import { NoLightningProvider } from '../services/weatherProviders.js';
 
 describe('location search and arbitrary-point risk', () => {
   it('validates geocoding input and Thailand coordinate bounds', () => {
@@ -22,6 +24,11 @@ describe('location search and arbitrary-point risk', () => {
     const app = createApp({
       config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'live' }),
       geocodingProvider: failingProvider,
+      riskDataService: new RiskDataService(
+        'live',
+        new NoLightningProvider('live'),
+        async () => { throw new Error('test forecast unavailable'); }
+      ),
     });
 
     const badPoint = await request(app).get('/api/risk?lat=40.7&lon=-74');

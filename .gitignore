@@ -4,5 +4,11 @@ dist/
 .env.local
 data/*
 !data/soil-pathumthani.geojson
+infra/tiles/data/
+infra/tiles/build/
+infra/tiles/cache/
+infra/tiles/fonts/
+*.pbf
+*.mbtiles
 *.log
 .DS_Store

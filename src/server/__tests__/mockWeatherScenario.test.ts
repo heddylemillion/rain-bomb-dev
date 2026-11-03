@@ -16,7 +16,7 @@ import {
   stormConeHalfWidthKm,
 } from '../../shared/mockWeatherScenario.js';
 import { RiskDataService } from '../services/riskDataService.js';
-import { XweatherClient } from '../services/xweatherClient.js';
+import { MockLightningProvider } from '../services/weatherProviders.js';
 
 const demoPoint = { lat: 13.7563, lon: 100.5018 };
 const testDate = '2026-10-29';
@@ -83,21 +83,9 @@ describe('shared mock weather scenario', () => {
 
   it('derives LOW, MEDIUM, and HIGH through the configured real risk engine without provider calls', async () => {
     const fetchImpl = vi.fn<typeof fetch>();
-    const client = new XweatherClient({
-      baseUrl: 'https://data.api.xweather.com',
-      clientId: 'mock-mode-test',
-      clientSecret: 'mock-mode-test-secret',
-      fetchImpl,
-    });
-    const providerSpies = [
-      vi.spyOn(client, 'fetchConditions'),
-      vi.spyOn(client, 'fetchObservations'),
-      vi.spyOn(client, 'fetchHourlyForecast'),
-      vi.spyOn(client, 'fetchObservationsArchive'),
-      vi.spyOn(client, 'fetchLightningWithin'),
-      vi.spyOn(client, 'fetchRawEndpoint'),
-    ];
-    const service = new RiskDataService(client, 'mock');
+    const lightning = new MockLightningProvider();
+    const lightningSpy = vi.spyOn(lightning, 'getSummary');
+    const service = new RiskDataService('mock', lightning, fetchImpl);
     const results = await Promise.all(
       (['calm', 'moderate', 'burst'] as const).map((scenario) =>
         service.getPointRisk(demoPoint.lat, demoPoint.lon, {
@@ -113,7 +101,7 @@ describe('shared mock weather scenario', () => {
       factor.source === 'จำลอง (scenario: moderate)'
     )).toBe(true);
     expect(fetchImpl).not.toHaveBeenCalled();
-    expect(providerSpies.every((spy) => spy.mock.calls.length === 0)).toBe(true);
+    expect(lightningSpy).not.toHaveBeenCalled();
   });
 
   it('derives all mock risk fields from the scenario at the selected point', () => {
@@ -132,13 +120,7 @@ describe('shared mock weather scenario', () => {
 
   it('yields HIGH through the real risk engine at every active cell core in burst scenario', async () => {
     const fetchImpl = vi.fn<typeof fetch>();
-    const client = new XweatherClient({
-      baseUrl: 'https://data.api.xweather.com',
-      clientId: 'mock-mode-test',
-      clientSecret: 'mock-mode-test-secret',
-      fetchImpl,
-    });
-    const service = new RiskDataService(client, 'mock');
+    const service = new RiskDataService('mock', new MockLightningProvider(), fetchImpl);
     for (const date of ['2026-10-29', '2026-10-31', '2026-06-15']) {
       const scenario = createMockScenario('burst', date);
       const activeCells = scenario.cells.filter((cell) => activeCell(cell, 0));

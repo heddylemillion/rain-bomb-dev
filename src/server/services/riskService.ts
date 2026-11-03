@@ -142,7 +142,7 @@ export function calculateRisk(options: CalculateRiskOptions): RiskResult {
       weight: config.weight,
       available,
       isStale: false,
-      source: input?.source ?? 'Xweather',
+      source: input?.source ?? 'Unavailable',
       observedAt: input?.observedAt ?? null,
       ...(available ? {} : { reason: input?.reason ?? 'error' as const }),
     };
