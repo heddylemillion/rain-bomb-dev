@@ -26,6 +26,7 @@ import {
   reverseGeocode,
 } from '../api/weather.js';
 import { DisplayPopover } from '../components/DisplayPopover.js';
+import { ChatDrawer } from '../components/ChatDrawer.js';
 import { LocationSearch } from '../components/LocationSearch.js';
 import { MapCanvas, type UserPosition } from '../components/MapCanvas.js';
 import { MapControls, RadarSlider } from '../components/MapOverlays.js';
@@ -123,6 +124,7 @@ export function OverviewPage({
   const [activeOverlays, setActiveOverlays] = useState<ReadonlySet<SideLayerId>>(
     () => new Set<SideLayerId>()
   );
+  const [chatOpen, setChatOpen] = useState(false);
   const [radarHours, setRadarHours] = useState(0);
   const [timelineMinutes, setTimelineMinutes] = useState(0);
   const [radarOpacity, setRadarOpacity] = useState(0.7);
@@ -552,6 +554,8 @@ export function OverviewPage({
           onRadarOpacityChange={setRadarOpacity}
           menuOpen={menuOpen}
           onOpenMenu={handleToggleMenu}
+          chatOpen={chatOpen}
+          onOpenChat={() => setChatOpen(true)}
         />
         {!isMobile && statusCardElement}
       </div>
@@ -702,6 +706,14 @@ export function OverviewPage({
           </p>
         </div>
       </div>
+
+      <ChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        area={{ lat: place.lat, lon: place.lon, name: place.name }}
+        dataMode={dataMode === 'live' ? 'live' : 'cache'}
+        riskLevel={pointRiskQuery.data?.level ?? 'INSUFFICIENT'}
+      />
     </div>
   );
 }

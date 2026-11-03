@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   CloudRain,
   Layers,
+  MessageCircle,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -142,6 +143,8 @@ export function SideBar({
   onRadarOpacityChange,
   menuOpen,
   onOpenMenu,
+  onOpenChat,
+  chatOpen,
 }: {
   layers: SideLayerItem[];
   onToggleLayer: (id: SideLayerId) => void;
@@ -152,6 +155,8 @@ export function SideBar({
   onRadarOpacityChange: (opacity: number) => void;
   menuOpen: boolean;
   onOpenMenu: () => void;
+  onOpenChat: () => void;
+  chatOpen: boolean;
 }): React.ReactNode {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(readInitialExpanded);
@@ -162,6 +167,7 @@ export function SideBar({
   const expandTip = useAccessibleTooltip(true);
   const radarOptTip = useAccessibleTooltip(true);
   const menuTip = useAccessibleTooltip(!expanded);
+  const chatTip = useAccessibleTooltip(!expanded);
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 768px)');
@@ -401,7 +407,29 @@ export function SideBar({
         </div>
       )}
 
-      <div className="border-t border-white/10 pt-1.5 mt-0.5 relative">
+      <div className="border-t border-white/10 pt-1.5 mt-0.5 relative flex flex-col gap-1.5">
+        <button
+          type="button"
+          data-chat-trigger="true"
+          aria-haspopup="dialog"
+          aria-expanded={chatOpen}
+          aria-controls="chat-drawer"
+          {...chatTip.triggerProps}
+          onClick={onOpenChat}
+          className={`glass-control-btn min-h-[44px] w-full rounded-xl flex items-center ${
+            expanded ? 'justify-start px-2.5 gap-2' : 'justify-center px-0 min-w-[44px]'
+          } ${chatOpen ? 'glass-control-active' : ''}`}
+        >
+          <MessageCircle className="w-4 h-4 text-sky-300 shrink-0" aria-hidden="true" />
+          {expanded ? (
+            <span className="text-xs font-semibold text-slate-50">{t('chatOpen')}</span>
+          ) : (
+            <span className="sr-only">{t('chatOpen')}</span>
+          )}
+        </button>
+        <GlassTooltip id={chatTip.tooltipId} open={chatTip.open} placement="right">
+          {t('chatOpen')}
+        </GlassTooltip>
         <button
           type="button"
           data-menu-trigger="true"

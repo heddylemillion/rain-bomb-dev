@@ -43,6 +43,25 @@ an appropriate Open-Meteo commercial plan and credentials. Review the current
 [Open-Meteo pricing and terms](https://open-meteo.com/en/pricing) before
 deployment.
 
+## Preparedness assistant
+
+The map includes an area-aware preparedness assistant backed by the local
+knowledge base in `config/kb.preparedness.th.json` and the existing risk and
+environment services. It is local-only by default: emergency phrases receive
+a fixed safety response, and other questions receive a deterministic answer
+from available risk data and reviewed guidance.
+
+To enable generated answers, configure `CHAT_PROVIDER=openrouter`,
+`OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, and a positive
+`CHAT_DAILY_BUDGET_REQUESTS` in the server's `.env`. Optional fallback models
+are comma-separated in `OPENROUTER_FALLBACK_MODELS`. The service sends a
+bounded conversation and server-built area context, masks common email and
+phone-number patterns in messages, validates citations and numeric claims,
+and falls back to the local answer when the model is unavailable. Requests
+to `/api/chat` are rate-limited separately. Review and verify preparedness
+guidance and emergency contacts in the knowledge-base file before approving
+or publishing them.
+
 ## Live data, availability, and risk
 
 `GET /api/capabilities` probes Xweather endpoints and raster tiles using the

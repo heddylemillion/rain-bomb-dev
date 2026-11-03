@@ -53,6 +53,14 @@ const EnvSchema = z.object({
     .default('http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173'),
   DEMO_MODE: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   STORM_CONE_KM_PER_30MIN: z.coerce.number().nonnegative().default(DEFAULT_STORM_CONE_GROWTH),
+  CHAT_PROVIDER: z.enum(['none', 'openrouter']).default('none'),
+  OPENROUTER_API_KEY: z.string().trim().optional(),
+  OPENROUTER_MODEL: z.string().trim().default(''),
+  OPENROUTER_FALLBACK_MODELS: z.string().trim().default(''),
+  CHAT_DAILY_BUDGET_REQUESTS: z.coerce.number().int().nonnegative().default(0),
+  CHAT_HTTP_REFERER: z.string().url().default('http://localhost:5173'),
+  CHAT_X_TITLE: z.string().trim().min(1).default('RAINBOMB'),
+  REQUIRE_APPROVED_ADVISORIES: z.enum(['true', 'false']).default('true'),
 }).superRefine((env, context) => {
   if (env.OPEN_METEO_COMMERCIAL && !env.OPEN_METEO_API_KEY.trim()) {
     context.addIssue({
@@ -89,6 +97,16 @@ export interface AppConfig {
   corsAllowedOrigins: string[];
   demoMode: boolean;
   stormConeKmPer30Min: number;
+  chat: {
+    provider: 'none' | 'openrouter';
+    apiKey?: string;
+    model: string;
+    fallbackModels: string[];
+    dailyBudgetRequests: number;
+    httpReferer: string;
+    title: string;
+    requireApprovedAdvisories: boolean;
+  };
 }
 
 export function loadConfig(envInput: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -123,6 +141,19 @@ export function loadConfig(envInput: NodeJS.ProcessEnv = process.env): AppConfig
     corsAllowedOrigins: origins,
     demoMode: parsed.DEMO_MODE,
     stormConeKmPer30Min: parsed.STORM_CONE_KM_PER_30MIN,
+    chat: {
+      provider: parsed.CHAT_PROVIDER,
+      ...(parsed.OPENROUTER_API_KEY ? { apiKey: parsed.OPENROUTER_API_KEY } : {}),
+      model: parsed.OPENROUTER_MODEL,
+      fallbackModels: parsed.OPENROUTER_FALLBACK_MODELS
+        .split(',')
+        .map((model) => model.trim())
+        .filter(Boolean),
+      dailyBudgetRequests: parsed.CHAT_DAILY_BUDGET_REQUESTS,
+      httpReferer: parsed.CHAT_HTTP_REFERER,
+      title: parsed.CHAT_X_TITLE,
+      requireApprovedAdvisories: parsed.REQUIRE_APPROVED_ADVISORIES === 'true',
+    },
   };
 }
 

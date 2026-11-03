@@ -27,6 +27,7 @@ import {
 import type { CommunityWeatherBundle } from '../types/weather.js';
 import type { GeocodingProvider } from '../services/geocodingProvider.js';
 import type { EnvironmentDataService, DataMode } from '../services/environmentDataService.js';
+import { ChatRequestSchema, type ChatService } from '../services/chatService.js';
 
 const CommunityIdParamSchema = z
   .string()
@@ -47,6 +48,7 @@ export interface ApiRouterDeps {
   allowGeocodingInMock?: boolean;
   environmentDataService: EnvironmentDataService;
   geocodingProvider: GeocodingProvider;
+  chatService: ChatService;
 }
 
 export const PointQuerySchema = z.object({
@@ -132,6 +134,33 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       dataMode: deps.dataMode,
       stormConeKmPer30Min: deps.stormConeKmPer30Min ?? 2.5,
     });
+  });
+
+  router.post('/chat', async (req: Request, res: Response) => {
+    const parsed = ChatRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: {
+          code: 'INVALID_CHAT_REQUEST',
+          messageTh: 'ข้อมูลคำถามไม่ถูกต้อง กรุณาตรวจข้อความและตำแหน่งที่เลือก',
+        },
+      });
+      return;
+    }
+
+    try {
+      const answer = await deps.chatService.respond(parsed.data);
+      res.status(200).json(answer);
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.error({ error: message }, 'Failed to build a chat response');
+      res.status(503).json({
+        error: {
+          code: 'CHAT_UNAVAILABLE',
+          messageTh: 'ผู้ช่วยยังไม่พร้อมใช้งาน กรุณาลองอีกครั้ง',
+        },
+      });
+    }
   });
 
   router.get('/environment', async (req: Request, res: Response) => {

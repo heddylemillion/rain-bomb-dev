@@ -15,6 +15,7 @@ import { XweatherClient } from './services/xweatherClient.js';
 import type { CommunityWeatherBundle } from './types/weather.js';
 import { RiskDataService } from './services/riskDataService.js';
 import { EnvironmentDataService } from './services/environmentDataService.js';
+import { ChatService } from './services/chatService.js';
 
 export interface CreateAppOptions {
   config?: AppConfig;
@@ -23,6 +24,7 @@ export interface CreateAppOptions {
   weatherService?: WeatherService;
   geocodingProvider?: GeocodingProvider;
   environmentDataService?: EnvironmentDataService;
+  chatService?: ChatService;
 }
 
 export function createApp(options: CreateAppOptions = {}): Express {
@@ -47,6 +49,18 @@ export function createApp(options: CreateAppOptions = {}): Express {
       xweatherClient,
       cacheStore,
     });
+  const riskDataService = new RiskDataService(xweatherClient, cfg.dataMode);
+  const environmentDataService = options.environmentDataService ?? new EnvironmentDataService({
+    mode: cfg.dataMode,
+    apiKey: cfg.openMeteo.apiKey,
+    commercial: cfg.openMeteo.commercial,
+  });
+  const chatService = options.chatService ?? new ChatService({
+    dataMode: cfg.dataMode,
+    config: cfg.chat,
+    riskDataService,
+    environmentDataService,
+  });
 
   const app = express();
 
@@ -93,6 +107,19 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use('/api/map', mapTileLimiter);
   app.use('/api/tiles', mapTileLimiter);
 
+  app.use('/api/chat', rateLimit({
+    windowMs: 60_000,
+    limit: 8,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: {
+      error: {
+        code: 'CHAT_RATE_LIMIT_EXCEEDED',
+        messageTh: 'ส่งคำถามบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่',
+      },
+    },
+  }));
+
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 นาที
     limit: 120,
@@ -116,16 +143,13 @@ export function createApp(options: CreateAppOptions = {}): Express {
       xweatherClient,
       cacheStore,
       hasXweatherCredentials: xweatherClient.hasCredentials(),
-      riskDataService: new RiskDataService(xweatherClient, cfg.dataMode),
+      riskDataService,
       demoMode: cfg.demoMode,
       dataMode: cfg.dataMode,
       stormConeKmPer30Min: cfg.stormConeKmPer30Min,
       allowGeocodingInMock: cfg.geocoding.allowInMock,
-      environmentDataService: options.environmentDataService ?? new EnvironmentDataService({
-        mode: cfg.dataMode,
-        apiKey: cfg.openMeteo.apiKey,
-        commercial: cfg.openMeteo.commercial,
-      }),
+      environmentDataService,
+      chatService,
       geocodingProvider: options.geocodingProvider ?? new NominatimGeocodingProvider({
         baseUrl: cfg.geocoding.baseUrl,
         userAgent: cfg.geocoding.userAgent,
