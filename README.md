@@ -122,14 +122,13 @@ refreshes are paused while the browser tab is hidden.
 
 Soil type lookup uses Land Development Department (LDD) soil-series data at
 1:25,000 scale for Bangkok, Nakhon Pathom, Nonthaburi, Pathum Thani, Samut
-Prakan, and Samut Songkhram. Toggle **Soil type** in the map layer panel and
-click a location to show its soil details; soil polygons are not drawn on the
-map. `GET /api/soil?lat=...&lon=...` returns the selected point's soil details,
-and `GET /api/soil/layer` remains available for clients that need the GeoJSON
-data. The supplied archive contains Samut Songkhram, not Samut Sakhon, so
-Samut Sakhon is not included. This mapping is district-by-soil-series scale,
-not a point- or street-level survey, and is displayed for context only; it is
-not used by the risk score. Drainage data has not been verified, so
+Prakan, Samut Sakhon, and Samut Songkhram. Toggle **Soil type** in the map
+layer panel and click a location to show its soil details; soil polygons are
+not drawn on the map. `GET /api/soil?lat=...&lon=...` returns the selected
+point's soil details, and `GET /api/soil/layer` remains available for clients
+that need the GeoJSON data. This mapping is district-by-soil-series scale, not
+a point- or street-level survey, and is displayed for context only; it is not
+used by the risk score. Drainage data has not been verified, so
 `drainageClass` intentionally remains `null` and is displayed as no data.
 Confirm the LDD dataset's rights and terms for public redistribution before
 publishing the repository or data publicly.

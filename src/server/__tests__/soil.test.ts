@@ -15,6 +15,7 @@ describe('LDD soil API', () => {
     ['13.86', '100.5', 'Tb', 'ดินเหนียว'],
     ['13.59', '100.6', 'Sm', 'ดินเหนียว'],
     ['13.41', '100.0', 'Sso', 'ดินเหนียวปนทรายแป้ง'],
+    ['13.55', '100.27', 'Tc', 'ดินเหนียว'],
   ])('looks up soil at (%s, %s)', async (lat, lon, soilCode, textureTh) => {
     const response = await request(app).get(`/api/soil?lat=${lat}&lon=${lon}`);
 
@@ -52,7 +53,7 @@ describe('LDD soil API', () => {
     expect(response.status).toBe(200);
     expect(response.headers['cache-control']).toBe('public, max-age=86400');
     expect(response.body.type).toBe('FeatureCollection');
-    expect(response.body.features).toHaveLength(181);
+    expect(response.body.features).toHaveLength(201);
     expect(response.body.features.find((feature: { properties: { soilCode: string } }) =>
       feature.properties.soilCode === 'W'
     )?.properties).toMatchObject({
