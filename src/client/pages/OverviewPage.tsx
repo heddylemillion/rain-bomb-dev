@@ -121,7 +121,7 @@ export function OverviewPage({
   );
   const [tabVisible, setTabVisible] = useState(() => document.visibilityState === 'visible');
   const [activeOverlays, setActiveOverlays] = useState<ReadonlySet<SideLayerId>>(
-    () => new Set<SideLayerId>(['radar', 'lightning', 'storm'])
+    () => new Set<SideLayerId>()
   );
   const [radarHours, setRadarHours] = useState(0);
   const [timelineMinutes, setTimelineMinutes] = useState(0);
