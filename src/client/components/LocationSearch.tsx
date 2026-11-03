@@ -151,7 +151,7 @@ export function LocationSearch({
         aria-label={`${t('brandTitle')} — ${t('brandSubtitle')}`}
       >
         <img
-          className="w-7 h-7 object-contain shrink-0"
+          className="w-9 h-9 object-contain shrink-0"
           src={rainbombLogo}
           alt=""
           aria-hidden="true"
