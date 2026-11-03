@@ -22,13 +22,37 @@ export const RadarFramesResponseSchema = z.object({
 });
 export type RadarFramesResponse = z.infer<typeof RadarFramesResponseSchema>;
 
+export const CapeHourlyEntrySchema = z.object({
+  timeISO: z.string(),
+  capeJkg: z.number().nonnegative().nullable(),
+  warning: z.boolean(),
+});
+export type CapeHourlyEntry = z.infer<typeof CapeHourlyEntrySchema>;
+
+export const CapeGridCellSchema = z.object({
+  lat: z.number(),
+  lon: z.number(),
+  capeNowJkg: z.number().nonnegative().nullable(),
+  capeMax5hJkg: z.number().nonnegative().nullable(),
+  warning: z.boolean(),
+  potentialLevel: z.enum(['high', 'moderate', 'low', 'unknown']),
+});
+export type CapeGridCell = z.infer<typeof CapeGridCellSchema>;
+
 export const LightningSummarySchema = z.object({
+  capeNowJkg: z.number().nonnegative().nullable(),
+  capeMax5hJkg: z.number().nonnegative().nullable(),
+  warning: z.boolean(),
+  potentialLevel: z.enum(['high', 'moderate', 'low', 'unknown']),
+  hourly5h: z.array(CapeHourlyEntrySchema),
+  cells: z.array(CapeGridCellSchema),
   count30min: z.number().int().nonnegative().nullable(),
   nearestStrikeKm: z.number().nonnegative().nullable(),
   within5km15min: z.number().int().nonnegative().nullable(),
   source: z.string(),
   observedAt: z.string().datetime({ offset: true }).nullable(),
-  display: z.enum(['counts-only', 'tiles']),
+  display: z.enum(['cape', 'counts-only', 'tiles']),
+  noticeTh: z.string().nullable().optional(),
 });
 export type LightningSummary = z.infer<typeof LightningSummarySchema>;
 

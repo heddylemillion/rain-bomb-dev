@@ -1,12 +1,20 @@
 import { z } from 'zod';
 import { inflateSync } from 'node:zlib';
 import type {
+  CapeGridCell,
+  CapeHourlyEntry,
   ProviderMode,
   RadarFrame,
   StormTrackFeatureCollection,
 } from '../../shared/providerContracts.js';
 import { StormTrackFeatureCollectionSchema } from '../../shared/providerContracts.js';
 import { logger, redactSecretsInText } from '../logger.js';
+import {
+  CAPE_WARNING_THRESHOLD_JKG,
+  fetchOpenMeteoCape,
+  type OpenMeteoCapePointSeries,
+  type WeatherApiClient,
+} from './openMeteoSdk.js';
 
 export interface TileCoordinates {
   z: number;
@@ -15,6 +23,12 @@ export interface TileCoordinates {
 }
 
 export interface LightningSummary {
+  capeNowJkg: number | null;
+  capeMax5hJkg: number | null;
+  warning: boolean;
+  potentialLevel: 'high' | 'moderate' | 'low' | 'unknown';
+  hourly5h: CapeHourlyEntry[];
+  cells: CapeGridCell[];
   count30min: number | null;
   nearestStrikeKm: number | null;
   within5km15min: number | null;
@@ -376,12 +390,167 @@ export class NoLightningProvider implements LightningProvider {
 
   public async getSummary(): Promise<LightningSummary> {
     return {
+      capeNowJkg: null,
+      capeMax5hJkg: null,
+      warning: false,
+      potentialLevel: 'unknown',
+      hourly5h: [],
+      cells: [],
       count30min: null,
       nearestStrikeKm: null,
       within5km15min: null,
       source: 'No lightning provider configured',
       observedAt: null,
     };
+  }
+}
+
+function summarizeCapeWindow(
+  series: OpenMeteoCapePointSeries,
+  currentHourFloorMs: number
+): {
+  capeNowJkg: number | null;
+  capeMax5hJkg: number | null;
+  warning: boolean;
+  potentialLevel: 'high' | 'moderate' | 'low' | 'unknown';
+  hourly5h: CapeHourlyEntry[];
+} {
+  const foundIdx = series.hourly.time.findIndex((t) => Date.parse(t) >= currentHourFloorMs);
+  const startIdx = foundIdx >= 0 ? foundIdx : 0;
+  const hourly5h: CapeHourlyEntry[] = [];
+  for (let offset = 0; offset < 5; offset += 1) {
+    const timeISO = series.hourly.time[startIdx + offset];
+    if (!timeISO) break;
+    const rawCape = series.hourly.cape[startIdx + offset];
+    const capeJkg = rawCape !== undefined && rawCape !== null && Number.isFinite(rawCape) ? rawCape : null;
+    hourly5h.push({
+      timeISO,
+      capeJkg,
+      warning: capeJkg !== null && capeJkg > CAPE_WARNING_THRESHOLD_JKG,
+    });
+  }
+
+  const capeNowJkg = hourly5h[0]?.capeJkg ?? null;
+  const finite5h = hourly5h
+    .map((entry) => entry.capeJkg)
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  const capeMax5hJkg = finite5h.length > 0 ? Math.max(...finite5h) : null;
+  const warning = capeMax5hJkg !== null && capeMax5hJkg > CAPE_WARNING_THRESHOLD_JKG;
+  const potentialLevel: 'high' | 'moderate' | 'low' | 'unknown' =
+    capeMax5hJkg === null
+      ? 'unknown'
+      : capeMax5hJkg > CAPE_WARNING_THRESHOLD_JKG
+        ? 'high'
+        : capeMax5hJkg >= 300
+          ? 'moderate'
+          : 'low';
+
+  return {
+    capeNowJkg,
+    capeMax5hJkg,
+    warning,
+    potentialLevel,
+    hourly5h,
+  };
+}
+
+export class OpenMeteoCapeLightningProvider implements LightningProvider {
+  public readonly id = 'open-meteo-cape';
+  public readonly attribution = 'Open-Meteo CAPE';
+  public readonly attributionUrl = 'https://open-meteo.com/';
+  public readonly licenceLimits =
+    'CC BY 4.0 Open-Meteo convective available potential energy (CAPE) 5-hour forecast; indicates lightning potential (>1,000 J/kg), not observed lightning strikes.';
+  private readonly cache = new Map<string, CacheEntry<LightningSummary>>();
+  private readonly inFlight = new Map<string, Promise<LightningSummary>>();
+  private readonly breaker = new CircuitBreaker(5, 60_000);
+
+  constructor(
+    public readonly mode: ProviderMode,
+    private readonly weatherApi?: WeatherApiClient,
+    private readonly now: () => number = Date.now
+  ) {}
+
+  public async getSummary(lat: number, lon: number): Promise<LightningSummary> {
+    const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    const now = this.now();
+    const cached = this.cache.get(key);
+    if (cached && cached.expiresAt > now) return cached.value;
+
+    const existing = this.inFlight.get(key);
+    if (existing) return existing;
+
+    if (this.mode === 'cache' || this.breaker.isOpen(now)) {
+      return {
+        capeNowJkg: null,
+        capeMax5hJkg: null,
+        warning: false,
+        potentialLevel: 'unknown',
+        hourly5h: [],
+        cells: [],
+        count30min: null,
+        nearestStrikeKm: null,
+        within5km15min: null,
+        source: this.attribution,
+        observedAt: null,
+      };
+    }
+
+    const requestPromise = (async (): Promise<LightningSummary> => {
+      try {
+        const capeData = await fetchOpenMeteoCape(lat, lon, {
+          ...(this.weatherApi ? { weatherApi: this.weatherApi } : {}),
+          timeoutMs: 8000,
+        });
+        const currentHourFloor = Math.floor(now / 3_600_000) * 3_600_000;
+        const centerSummary = summarizeCapeWindow(capeData.center, currentHourFloor);
+
+        const seenCellKeys = new Set<string>();
+        const cells: CapeGridCell[] = [];
+        for (const pointSeries of capeData.grid) {
+          const cellKey = `${pointSeries.latitude.toFixed(2)},${pointSeries.longitude.toFixed(2)}`;
+          if (seenCellKeys.has(cellKey)) continue;
+          seenCellKeys.add(cellKey);
+          const pointSummary = summarizeCapeWindow(pointSeries, currentHourFloor);
+          cells.push({
+            lat: pointSeries.latitude,
+            lon: pointSeries.longitude,
+            capeNowJkg: pointSummary.capeNowJkg,
+            capeMax5hJkg: pointSummary.capeMax5hJkg,
+            warning: pointSummary.warning,
+            potentialLevel: pointSummary.potentialLevel,
+          });
+        }
+
+        const value: LightningSummary = {
+          capeNowJkg: centerSummary.capeNowJkg,
+          capeMax5hJkg: centerSummary.capeMax5hJkg,
+          warning: centerSummary.warning,
+          potentialLevel: centerSummary.potentialLevel,
+          hourly5h: centerSummary.hourly5h,
+          cells,
+          count30min: null,
+          nearestStrikeKm: null,
+          within5km15min: null,
+          source: this.attribution,
+          observedAt: new Date(now).toISOString(),
+        };
+        this.cache.set(key, { value, expiresAt: now + 5 * 60_000 });
+        this.breaker.success();
+        return value;
+      } catch (error: unknown) {
+        logger.warn(
+          { err: redactSecretsInText(error instanceof Error ? error.message : String(error)) },
+          'Open-Meteo CAPE lightning potential request failed'
+        );
+        this.breaker.failure(now);
+        throw new Error('Open-Meteo CAPE data are unavailable', { cause: error });
+      } finally {
+        this.inFlight.delete(key);
+      }
+    })();
+
+    this.inFlight.set(key, requestPromise);
+    return requestPromise;
   }
 }
 const GdacsEventCollectionSchema = z.object({

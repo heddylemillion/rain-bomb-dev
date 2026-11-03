@@ -43,6 +43,14 @@ function maxComplete(values: Array<number | null>, start: number, count: number)
 
 export class RiskDataService {
   private readonly forecastCache = new Map<string, ForecastCacheEntry>();
+  private readonly inFlight = new Map<
+    string,
+    Promise<{
+      value: OpenMeteoForecastData | null;
+      fetchedAtISO: string | null;
+      reason: RiskDataReason;
+    }>
+  >();
 
   constructor(
     private readonly dataMode: DataMode,
@@ -58,7 +66,15 @@ export class RiskDataService {
       this.lightningProvider.id !== 'none'
         ? this.lightningProvider
             .getSummary(lat, lon)
-            .then((value) => ({ value, reason: 'ok' as const }))
+            .then((value) => ({
+              value,
+              reason:
+                value.capeMax5hJkg !== null || value.count30min !== null
+                  ? ('ok' as const)
+                  : this.dataMode === 'cache'
+                    ? ('no_coverage' as const)
+                    : ('unavailable' as const),
+            }))
             .catch((error: unknown) => {
               logger.warn(
                 {
@@ -131,8 +147,8 @@ export class RiskDataService {
         reason: unavailableReason,
       },
       {
-        id: 'lightning30minCount',
-        rawValue: lightningResult.value?.count30min ?? null,
+        id: 'capeMax5hJkg',
+        rawValue: lightningResult.value?.capeMax5hJkg ?? null,
         source: this.lightningProvider.attribution,
         observedAt: lightningResult.value?.observedAt ?? null,
         reason: lightningResult.reason,
@@ -162,6 +178,9 @@ export class RiskDataService {
       fetchedAt: forecastResult.fetchedAtISO,
       lightningWithin5km15minCount: lightningResult.value?.within5km15min ?? null,
       lightningSummary: {
+        capeNowJkg: lightningResult.value?.capeNowJkg ?? null,
+        capeMax5hJkg: lightningResult.value?.capeMax5hJkg ?? null,
+        warning: lightningResult.value?.warning ?? false,
         count30min: lightningResult.value?.count30min ?? null,
         nearestStrikeKm: lightningResult.value?.nearestStrikeKm ?? null,
       },
@@ -192,6 +211,7 @@ export class RiskDataService {
             humidityPct: finiteValue(forecast.hourly.relative_humidity_2m, index),
             pressureMslHpa: finiteValue(forecast.hourly.pressure_msl, index),
             windSpeedKmh: finiteValue(forecast.hourly.wind_speed_10m, index),
+            capeJkg: finiteValue(forecast.hourly.cape, index),
           },
         ];
       })
@@ -225,26 +245,36 @@ export class RiskDataService {
       return { value: null, fetchedAtISO: null, reason: 'no_coverage' };
     }
 
-    try {
-      const value = await fetchOpenMeteoForecast(lat, lon, {
-        ...(this.weatherApi ? { weatherApi: this.weatherApi } : {}),
-        timeoutMs: 8000,
-      });
-      const fetchedAtISO = new Date(this.now()).toISOString();
-      this.forecastCache.set(key, {
-        value,
-        fetchedAtISO,
-        expiresAt: this.now() + 5 * 60_000,
-      });
-      return { value, fetchedAtISO, reason: 'ok' };
-    } catch (error: unknown) {
-      logger.warn(
-        {
-          error: redactSecretsInText(error instanceof Error ? error.message : String(error)),
-        },
-        'Open-Meteo risk forecast is unavailable'
-      );
-      return { value: null, fetchedAtISO: null, reason: 'error' };
-    }
+    const existing = this.inFlight.get(key);
+    if (existing) return existing;
+
+    const requestPromise = (async () => {
+      try {
+        const value = await fetchOpenMeteoForecast(lat, lon, {
+          ...(this.weatherApi ? { weatherApi: this.weatherApi } : {}),
+          timeoutMs: 8000,
+        });
+        const fetchedAtISO = new Date(this.now()).toISOString();
+        this.forecastCache.set(key, {
+          value,
+          fetchedAtISO,
+          expiresAt: this.now() + 5 * 60_000,
+        });
+        return { value, fetchedAtISO, reason: 'ok' as const };
+      } catch (error: unknown) {
+        logger.warn(
+          {
+            error: redactSecretsInText(error instanceof Error ? error.message : String(error)),
+          },
+          'Open-Meteo risk forecast is unavailable'
+        );
+        return { value: null, fetchedAtISO: null, reason: 'error' as const };
+      } finally {
+        this.inFlight.delete(key);
+      }
+    })();
+
+    this.inFlight.set(key, requestPromise);
+    return requestPromise;
   }
 }

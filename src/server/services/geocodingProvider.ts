@@ -28,27 +28,60 @@ const NominatimResultSchema = z.object({
 const NominatimResponseSchema = z.array(NominatimResultSchema);
 const NominatimReverseSchema = NominatimResultSchema.extend({}).nullable();
 
+function nonEmpty(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function clampToThailand(lat: number, lon: number, fallbackLat?: number, fallbackLon?: number): {
+  lat: number;
+  lon: number;
+} {
+  const inBounds = lat >= 5.5 && lat <= 20.5 && lon >= 97 && lon <= 106;
+  const safeLat = inBounds ? lat : (fallbackLat ?? Math.min(20.5, Math.max(5.5, lat)));
+  const safeLon = inBounds ? lon : (fallbackLon ?? Math.min(106, Math.max(97, lon)));
+  return {
+    lat: Number(safeLat.toFixed(2)),
+    lon: Number(safeLon.toFixed(2)),
+  };
+}
+
 function toGeocodingResult(
-  result: z.infer<typeof NominatimResultSchema>
+  result: z.infer<typeof NominatimResultSchema>,
+  fallbackLat?: number,
+  fallbackLon?: number
 ): GeocodingResult {
   const address = result.address ?? {};
   const name =
-    result.name ??
-    address['suburb'] ??
-    address['town'] ??
-    address['village'] ??
-    address['city'] ??
-    result.display_name.split(',')[0] ??
+    nonEmpty(result.name) ??
+    nonEmpty(address['neighbourhood']) ??
+    nonEmpty(address['suburb']) ??
+    nonEmpty(address['quarter']) ??
+    nonEmpty(address['road']) ??
+    nonEmpty(address['town']) ??
+    nonEmpty(address['village']) ??
+    nonEmpty(address['city']) ??
+    nonEmpty(result.display_name.split(',')[0]) ??
     'ตำแหน่งที่เลือก';
   const district =
-    address['city_district'] ?? address['county'] ?? address['municipality'] ?? '';
-  const province = address['state'] ?? address['province'] ?? '';
+    nonEmpty(address['city_district']) ??
+    nonEmpty(address['county']) ??
+    nonEmpty(address['municipality']) ??
+    nonEmpty(address['suburb']) ??
+    '';
+  const province =
+    nonEmpty(address['state']) ??
+    nonEmpty(address['province']) ??
+    nonEmpty(address['city']) ??
+    '';
   const placeParts = [name, district, province].filter(
     (part, index, parts) => part.length > 0 && parts.indexOf(part) === index
   );
+  const coords = clampToThailand(result.lat, result.lon, fallbackLat, fallbackLon);
   return {
-    lat: Number(result.lat.toFixed(2)),
-    lon: Number(result.lon.toFixed(2)),
+    lat: coords.lat,
+    lon: coords.lon,
     name,
     district,
     province,
@@ -94,8 +127,8 @@ export class NominatimGeocodingProvider implements GeocodingProvider {
       url.searchParams.set('countrycodes', this.countryCodes);
     }
     const raw = await this.request(url);
-    const results = NominatimResponseSchema.parse(raw).map(toGeocodingResult);
-    this.cache.set(key, { value: results, expiresAt: Date.now() + 10 * 60_000 });
+    const results = NominatimResponseSchema.parse(raw).map((item) => toGeocodingResult(item));
+    this.cache.set(key, { value: results, expiresAt: Date.now() + 60 * 60_000 });
     return results;
   }
 
@@ -112,9 +145,13 @@ export class NominatimGeocodingProvider implements GeocodingProvider {
     url.searchParams.set('addressdetails', '1');
     url.searchParams.set('accept-language', language);
     const raw = await this.request(url);
+    if (typeof raw === 'object' && raw !== null && 'error' in raw) {
+      this.cache.set(key, { value: [], expiresAt: Date.now() + 60 * 60_000 });
+      return null;
+    }
     const parsed = NominatimReverseSchema.parse(raw);
-    const result = parsed ? toGeocodingResult(parsed) : null;
-    this.cache.set(key, { value: result ? [result] : [], expiresAt: Date.now() + 10 * 60_000 });
+    const result = parsed ? toGeocodingResult(parsed, lat, lon) : null;
+    this.cache.set(key, { value: result ? [result] : [], expiresAt: Date.now() + 60 * 60_000 });
     return result;
   }
 

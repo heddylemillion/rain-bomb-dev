@@ -15,6 +15,11 @@ import {
   selectSeaReferencePoint,
   type SeaReferencePoint,
 } from '../services/environmentDataService.js';
+import {
+  OPEN_METEO_MARINE_URL,
+  type WeatherApiClient,
+} from '../services/openMeteoSdk.js';
+import { buildMockWeatherApiResponses } from './helpers/openMeteoTestHelper.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -126,18 +131,10 @@ describe('Open-Meteo elevation provider', () => {
     expect(result?.messageTh).toContain(expected);
   });
 
-  it('does not make Open-Meteo requests in mock or cache mode', async () => {
+  it('does not make Open-Meteo requests in cache mode without cached data', async () => {
     const directory = await temporaryPath();
     const fetcher = vi.fn<typeof fetch>();
     const coordinate = { latitude: 14.0647, longitude: 100.6186 };
-    const mock = new OpenMeteoElevationProvider({
-      mode: 'mock',
-      fetcher,
-      elevationCachePath: path.join(directory, 'mock-elevation.json'),
-    });
-    const mockFirst = await mock.getMany([coordinate]);
-    const mockSecond = await mock.getMany([coordinate]);
-    expect(mockFirst[0]?.valueM).toBe(mockSecond[0]?.valueM);
 
     const cacheOnly = new OpenMeteoElevationProvider({
       mode: 'cache',
@@ -151,26 +148,29 @@ describe('Open-Meteo elevation provider', () => {
 });
 
 describe('Open-Meteo Marine provider', () => {
-  it('normalizes the requested forecast window to Bangkok time and preserves nulls', async () => {
+  it('normalizes the Open-Meteo Marine SDK forecast window to Bangkok time and preserves nulls', async () => {
     const directory = await temporaryPath();
     const now = Date.parse('2026-10-29T04:30:00Z');
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
-      const url = new URL(String(input));
-      expect(url.hostname).toBe('marine-api.open-meteo.com');
-      expect(url.searchParams.get('hourly')).toBe('sea_level_height_msl,wave_height');
-      expect(url.searchParams.get('forecast_days')).toBe('3');
-      expect(url.searchParams.get('timezone')).toBe('Asia/Bangkok');
-      return response({
-        hourly: {
-          time: ['2026-10-29T12:00', '2026-10-29T13:00', '2026-10-29T14:00'],
-          sea_level_height_msl: [null, 1.25, 1.4],
-          wave_height: [0.2, 0.3, null],
-        },
+    const weatherApi = vi.fn<WeatherApiClient>().mockImplementation(async (url, params) => {
+      expect(url).toBe(OPEN_METEO_MARINE_URL);
+      expect(params).toMatchObject({
+        hourly: 'sea_level_height_msl,wave_height',
+        forecast_days: 7,
+        timezone: 'Asia/Bangkok',
+      });
+      return buildMockWeatherApiResponses({
+        startUnixSec: Date.parse('2026-10-29T05:00:00Z') / 1000,
+        count: 3,
+        variables: [
+          [null, 1.25, 1.4],
+          [0.2, 0.3, null],
+        ],
       });
     });
+
     const provider = new OpenMeteoMarineProvider({
       mode: 'live',
-      fetcher,
+      weatherApi,
       marineCachePath: path.join(directory, 'marine.json'),
       now: () => now,
     });
@@ -205,15 +205,19 @@ describe('Open-Meteo Marine provider', () => {
 
   it('keeps sea-level nulls and reports when every hourly result is null', async () => {
     const directory = await temporaryPath();
+    const weatherApi = vi.fn<WeatherApiClient>().mockResolvedValue(
+      buildMockWeatherApiResponses({
+        startUnixSec: Date.parse('2026-10-29T05:00:00Z') / 1000,
+        count: 2,
+        variables: [
+          [null, null],
+          [null, 0.2],
+        ],
+      })
+    );
     const provider = new OpenMeteoMarineProvider({
       mode: 'live',
-      fetcher: vi.fn<typeof fetch>().mockResolvedValue(response({
-        hourly: {
-          time: ['2026-10-29T12:00', '2026-10-29T13:00'],
-          sea_level_height_msl: [null, null],
-          wave_height: [null, 0.2],
-        },
-      })),
+      weatherApi,
       marineCachePath: path.join(directory, 'marine-null.json'),
       now: () => Date.parse('2026-10-29T05:00:00Z'),
     });
@@ -224,74 +228,88 @@ describe('Open-Meteo Marine provider', () => {
 
   it('caches Marine forecasts and returns cached null data without another request', async () => {
     const directory = await temporaryPath();
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response({
-      hourly: {
-        time: [],
-        sea_level_height_msl: [],
-        wave_height: [],
-      },
-    }));
+    const weatherApi = vi.fn<WeatherApiClient>().mockResolvedValue(
+      buildMockWeatherApiResponses({
+        startUnixSec: Date.parse('2026-10-29T05:00:00Z') / 1000,
+        count: 0,
+        variables: [[], []],
+      })
+    );
     const cachePath = path.join(directory, 'marine-cache.json');
     const firstProvider = new OpenMeteoMarineProvider({
       mode: 'live',
-      fetcher,
+      weatherApi,
       marineCachePath: cachePath,
     });
     const first = await firstProvider.getForecast(candidatePoints[0]!);
     const second = await new OpenMeteoMarineProvider({
       mode: 'live',
-      fetcher,
+      weatherApi,
       marineCachePath: cachePath,
     }).getForecast(candidatePoints[0]!);
 
     expect(first.messageTh).toContain('ไม่มีข้อมูลระดับน้ำทะเล');
     expect(second.messageTh).toContain('ไม่มีข้อมูลระดับน้ำทะเล');
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(weatherApi).toHaveBeenCalledTimes(1);
   });
 
-  it('never sends requests in mock mode and returns a deterministic 48-hour shape', async () => {
-    const fetcher = vi.fn<typeof fetch>();
-    const point = candidatePoints[0]!;
-    const options = {
-      mode: 'mock' as const,
-      fetcher,
-      now: () => Date.parse('2026-10-29T05:30:00Z'),
-    };
-    const first = await new OpenMeteoMarineProvider(options).getForecast(point);
-    const second = await new OpenMeteoMarineProvider(options).getForecast(point);
-    expect(first).toEqual(second);
-    expect(first.hourly).toHaveLength(49);
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it('returns normalized mock data without calling any Open-Meteo host', async () => {
+  it('never sends requests in cache mode without a saved marine cache', async () => {
     const directory = await temporaryPath();
-    const fetcher = vi.fn<typeof fetch>();
+    const weatherApi = vi.fn<WeatherApiClient>();
+    const point = candidatePoints[0]!;
+    const result = await new OpenMeteoMarineProvider({
+      mode: 'cache',
+      weatherApi,
+      marineCachePath: path.join(directory, 'empty-marine.json'),
+      now: () => Date.parse('2026-10-29T05:30:00Z'),
+    }).getForecast(point);
+
+    expect(result.hourly).toEqual([]);
+    expect(result.messageTh).toBe('ไม่มีข้อมูลพยากรณ์ระดับน้ำทะเลในแคช');
+    expect(weatherApi).not.toHaveBeenCalled();
+  });
+
+  it('returns normalized live elevation and marine data from Open-Meteo providers', async () => {
+    const directory = await temporaryPath();
+    const now = Date.parse('2026-10-29T05:30:00Z');
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response({ elevation: [5.4] }));
+    const weatherApi = vi.fn<WeatherApiClient>().mockResolvedValue(
+      buildMockWeatherApiResponses({
+        startUnixSec: Date.parse('2026-10-29T06:00:00Z') / 1000,
+        count: 55,
+        variables: [
+          Array.from({ length: 55 }, (_, i) => 1.1 + i * 0.01),
+          Array.from({ length: 55 }, () => 0.4),
+        ],
+      })
+    );
     const referencePath = path.join(directory, 'sea-reference-points.json');
     await fs.writeFile(referencePath, JSON.stringify({
       points: candidatePoints,
       communities: {},
     }));
     const environment = new EnvironmentDataService({
-      mode: 'mock',
+      mode: 'live',
       fetcher,
-      now: () => Date.parse('2026-10-29T05:30:00Z'),
+      weatherApi,
+      now: () => now,
       elevationCachePath: path.join(directory, 'elevation.json'),
       marineCachePath: path.join(directory, 'marine.json'),
       referencePointsPath: referencePath,
     });
 
     const result = await environment.getAreaEnvironment(14.06, 100.62);
-    expect(result.isMock).toBe(true);
-    expect(result.elevation.valueM).not.toBeNull();
+    expect(result.elevation.valueM).toBe(5.4);
     expect(result.seaLevel.datum).toBe('global_mean_sea_level');
     expect(result.seaLevel.hourly).toHaveLength(49);
-    expect(fetcher).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(weatherApi).toHaveBeenCalledTimes(1);
   });
 
-  it('serves the environment API in mock mode with the mapped offshore reference', async () => {
+  it('serves the environment API in cache mode with the mapped offshore reference and zero outbound calls', async () => {
     const directory = await temporaryPath();
     const fetcher = vi.fn<typeof fetch>();
+    const weatherApi = vi.fn<WeatherApiClient>();
     const referencePath = path.join(directory, 'sea-reference-points.json');
     await fs.writeFile(referencePath, JSON.stringify({
       points: candidatePoints,
@@ -300,24 +318,24 @@ describe('Open-Meteo Marine provider', () => {
       },
     }));
     const environmentDataService = new EnvironmentDataService({
-      mode: 'mock',
+      mode: 'cache',
       fetcher,
+      weatherApi,
       elevationCachePath: path.join(directory, 'elevation.json'),
       marineCachePath: path.join(directory, 'marine.json'),
       referencePointsPath: referencePath,
     });
     const app = createApp({
-      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'mock' }),
+      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'cache' }),
       environmentDataService,
     });
 
     const runtimeConfig = await request(app).get('/api/runtime-config').expect(200);
-    expect(runtimeConfig.body.dataMode).toBe('mock');
+    expect(runtimeConfig.body.dataMode).toBe('cache');
     const result = await request(app)
       .get('/api/environment?lat=14.06&lon=100.62&communityId=khlong-luang')
       .expect(200);
     expect(result.body).toMatchObject({
-      isMock: true,
       seaLevel: {
         referencePoint: {
           id: 'upper-gulf',
@@ -328,29 +346,7 @@ describe('Open-Meteo Marine provider', () => {
       },
     });
     expect(fetcher).not.toHaveBeenCalled();
-  });
-
-  it('enables mock map overlays without making quota-limited provider requests', async () => {
-    const externalFetch = vi.spyOn(globalThis, 'fetch');
-    const app = createApp({
-      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'mock' }),
-    });
-
-    try {
-      await request(app)
-        .get('/api/risk?lat=13.7563&lon=100.5018&scenario=moderate&date=2026-10-29&offsetMin=0')
-        .expect(200)
-        .expect(({ body }) => expect(body.isMock).toBe(true));
-      await request(app).get('/api/radar/frames?lat=13.75&lon=100.5').expect(200);
-      await request(app).get('/api/lightning/summary?lat=13.75&lon=100.5').expect(200);
-      await request(app).get('/api/storm-tracks').expect(200);
-      await request(app).get('/api/environment?lat=13.75&lon=100.5').expect(200);
-      await request(app).get('/api/geocode?q=Bangkok').expect(200);
-      await request(app).get('/api/reverse-geocode?lat=13.75&lon=100.50').expect(200, { result: null });
-      expect(externalFetch).not.toHaveBeenCalled();
-    } finally {
-      externalFetch.mockRestore();
-    }
+    expect(weatherApi).not.toHaveBeenCalled();
   });
 });
 
@@ -382,21 +378,21 @@ describe('reference data and data-mode safeguards', () => {
     )).not.toThrow();
   });
 
-  it('starts with an empty environment and with the example environment', async () => {
+  it('defaults to live mode and Open-Meteo CAPE lightning provider with an empty or example environment', async () => {
     const config = loadConfig({});
-    expect(config.dataMode).toBe('mock');
+    expect(config.dataMode).toBe('live');
     expect(config.providers.radar.id).toBe('rainviewer');
-    expect(config.providers.lightning.id).toBe('none');
+    expect(config.providers.lightning.id).toBe('open-meteo-cape');
     expect(config.providers.stormTrack.id).toBe('gdacs');
     expect(loadConfig({ DATA_MODE: 'cache' }).dataMode).toBe('cache');
 
     const emptyEnvApp = createApp({ config });
     await request(emptyEnvApp).get('/api/health').expect(200)
-      .expect(({ body }) => expect(body.dataMode).toBe('mock'));
+      .expect(({ body }) => expect(body.dataMode).toBe('live'));
 
     const exampleEnv = dotenv.parse(await fs.readFile(path.resolve('.env.example')));
     const exampleApp = createApp({ config: loadConfig(exampleEnv) });
     await request(exampleApp).get('/api/health').expect(200)
-      .expect(({ body }) => expect(body.dataMode).toBe('mock'));
+      .expect(({ body }) => expect(body.dataMode).toBe('live'));
   });
 });

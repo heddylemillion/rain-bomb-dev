@@ -13,6 +13,7 @@ import { ChatService } from './services/chatService.js';
 import {
   GdacsStormTrackProvider,
   NoLightningProvider,
+  OpenMeteoCapeLightningProvider,
   RainViewerRadarProvider,
   TmdRadarProvider,
 } from './services/weatherProviders.js';
@@ -40,8 +41,11 @@ export function createApp(options: CreateAppOptions = {}): Express {
       ? new RainViewerRadarProvider(cfg.providers.radar.mode)
       : new TmdRadarProvider(cfg.providers.radar.mode)
   );
-  const lightningProvider = options.lightningProvider ??
-    new NoLightningProvider(cfg.providers.lightning.mode);
+  const lightningProvider = options.lightningProvider ?? (
+    cfg.providers.lightning.id === 'open-meteo-cape'
+      ? new OpenMeteoCapeLightningProvider(cfg.providers.lightning.mode)
+      : new NoLightningProvider(cfg.providers.lightning.mode)
+  );
   const stormTrackProvider = options.stormTrackProvider ??
     new GdacsStormTrackProvider(cfg.providers.stormTrack.mode);
   const riskDataService = options.riskDataService ??
@@ -63,6 +67,13 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use(cors({
     origin(requestOrigin, callback) {
       if (!requestOrigin || cfg.corsAllowedOrigins.includes(requestOrigin)) {
+        callback(null, true);
+        return;
+      }
+      if (
+        cfg.nodeEnv === 'development' &&
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(requestOrigin)
+      ) {
         callback(null, true);
         return;
       }
@@ -100,11 +111,14 @@ export function createApp(options: CreateAppOptions = {}): Express {
   }));
 
   app.use('/api', rateLimit({
-    windowMs: 15 * 60_000,
-    limit: 120,
+    windowMs: 60_000,
+    limit: 600,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    skip: (req) => req.path.startsWith('/radar/'),
+    skip: (req) =>
+      req.path.startsWith('/radar/') ||
+      req.path === '/health' ||
+      req.path === '/runtime-config',
     message: {
       error: {
         code: 'RATE_LIMIT_EXCEEDED',

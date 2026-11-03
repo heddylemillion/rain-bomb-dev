@@ -13,9 +13,9 @@ const RuntimeConfigSchema = z.object({
     mode: z.enum(['live', 'cache']),
   }),
   lightningProvider: z.object({
-    id: z.literal('none'),
+    id: z.enum(['open-meteo-cape', 'none']),
     mode: z.enum(['live', 'cache']),
-    display: z.literal('counts-only'),
+    display: z.enum(['cape', 'counts-only']),
   }),
   stormTrackProvider: z.object({
     id: z.literal('gdacs'),
@@ -38,6 +38,7 @@ export function AppShell(): React.ReactNode {
       }
       return RuntimeConfigSchema.parse(await response.json());
     },
+    retry: 2,
     staleTime: 30 * 60 * 1000,
     refetchInterval: false,
   });

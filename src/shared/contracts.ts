@@ -59,7 +59,7 @@ export const RiskFactorIdSchema = z.enum([
   'accum3hMm',
   'accum24hMm',
   'popMax3hPct',
-  'lightning30minCount',
+  'capeMax5hJkg',
   'pressureDrop3hHpa',
   'humidityPct',
   'tideFactor',
@@ -96,6 +96,9 @@ export const RiskResultSchema = z.object({
     })
   ),
   lightningSummary: z.object({
+    capeNowJkg: z.number().nullable().optional(),
+    capeMax5hJkg: z.number().nullable().optional(),
+    warning: z.boolean().optional(),
     count30min: z.number().nullable(),
     nearestStrikeKm: z.number().nullable(),
   }),
@@ -163,6 +166,7 @@ export const HourlyForecastEntrySchema = z.object({
   humidityPct: z.number().nullable(),
   pressureMslHpa: z.number().nullable(),
   windSpeedKmh: z.number().nullable(),
+  capeJkg: z.number().nullable(),
 });
 export type HourlyForecastEntry = z.infer<typeof HourlyForecastEntrySchema>;
 

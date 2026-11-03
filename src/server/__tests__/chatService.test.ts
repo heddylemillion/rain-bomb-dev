@@ -4,27 +4,17 @@ import { createApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { ChatRequestSchema, ChatService } from '../services/chatService.js';
 import { EnvironmentDataService } from '../services/environmentDataService.js';
+import type { WeatherApiClient } from '../services/openMeteoSdk.js';
 import { RiskDataService } from '../services/riskDataService.js';
 import {
-  MockLightningProvider,
-  MockRadarProvider,
-  MockStormTrackProvider,
-  NoLightningProvider,
+  GdacsStormTrackProvider,
+  OpenMeteoCapeLightningProvider,
+  RainViewerRadarProvider,
 } from '../services/weatherProviders.js';
-
-function forecast(now: number): unknown {
-  const firstHour = Math.floor(now / 3_600_000) * 3_600_000;
-  return {
-    hourly: {
-      time: Array.from({ length: 24 }, (_, index) =>
-        new Date(firstHour + index * 3_600_000).toISOString().slice(0, 16)),
-      precipitation: Array.from({ length: 24 }, (_, index) => index < 3 ? 5 : 0.1),
-      precipitation_probability: Array.from({ length: 24 }, () => 70),
-      relative_humidity_2m: Array.from({ length: 24 }, () => 80),
-      pressure_msl: Array.from({ length: 24 }, (_, index) => 1008 - index * 0.1),
-    },
-  };
-}
+import {
+  buildMockCapeResponses,
+  buildMockForecastResponses,
+} from './helpers/openMeteoTestHelper.js';
 
 function makeChatService(
   fetcher: typeof fetch,
@@ -40,17 +30,25 @@ function makeChatService(
     CHAT_DAILY_BUDGET_REQUESTS: '5',
     REQUIRE_APPROVED_ADVISORIES: 'false',
   });
-  const dataFetcher = vi.fn<typeof fetch>().mockResolvedValue(
-    new Response(JSON.stringify(forecast(now)), { status: 200 })
+  const forecastApi = vi.fn<WeatherApiClient>().mockResolvedValue(
+    buildMockForecastResponses(now, {
+      precipitation: (h) => (h >= 0 && h < 3 ? 5 : 0.1),
+      precipitationProbability: () => 70,
+      humidity: () => 80,
+    })
   );
+  const capeApi = vi.fn<WeatherApiClient>().mockResolvedValue(
+    buildMockCapeResponses(now, () => 1450)
+  );
+  const lightningProvider = new OpenMeteoCapeLightningProvider('live', capeApi, () => now);
   return new ChatService({
     dataMode: 'live',
     config: config.chat,
-    riskDataService: new RiskDataService('live', new NoLightningProvider('live'), dataFetcher, () => now),
-    environmentDataService: new EnvironmentDataService({ mode: 'mock', now: () => now }),
-    radarProvider: new MockRadarProvider(),
-    lightningProvider: new NoLightningProvider('live'),
-    stormTrackProvider: new MockStormTrackProvider(),
+    riskDataService: new RiskDataService('live', lightningProvider, forecastApi, () => now),
+    environmentDataService: new EnvironmentDataService({ mode: 'cache', now: () => now }),
+    radarProvider: new RainViewerRadarProvider('cache'),
+    lightningProvider,
+    stormTrackProvider: new GdacsStormTrackProvider('cache'),
     fetcher,
     now: () => now,
   });
@@ -73,7 +71,7 @@ describe('chat request schema and service', () => {
     }).success).toBe(false);
   });
 
-  it('sends server-built area context and privacy routing to OpenRouter without PII', async () => {
+  it('sends server-built area context including Open-Meteo CAPE and privacy routing to OpenRouter without PII', async () => {
     let captured: { body?: string; headers?: Headers } = {};
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
       captured = { body: String(init?.body), headers: new Headers(init?.headers) };
@@ -101,6 +99,8 @@ describe('chat request schema and service', () => {
     expect(payload.models).toEqual(['provider/test-model', 'provider/backup']);
     expect(payload.messages[0]?.content).toContain('ชื่อพื้นที่ ตำแหน่งทดสอบ');
     expect(payload.messages[0]?.content).toContain('13.750, 100.500');
+    expect(payload.messages[0]?.content).toContain('open-meteo-cape');
+    expect(payload.messages[0]?.content).toContain('1450 J/kg');
     expect(payload.messages[0]?.content).toContain('assistant-role history');
     expect(payload.messages.at(-1)?.content).not.toContain('081-234-5678');
     expect(payload.messages.at(-1)?.content).not.toContain('test@example.com');
@@ -148,27 +148,27 @@ describe('chat request schema and service', () => {
     expect((await makeChatService(malformedFetcher).respond(requestBody)).fallback).toBe(true);
   });
 
-  it('makes no outbound OpenRouter calls in mock mode', async () => {
+  it('makes no outbound OpenRouter calls when CHAT_PROVIDER is none', async () => {
     const fetcher = vi.fn<typeof fetch>();
     const config = loadConfig({
       NODE_ENV: 'test',
-      DATA_MODE: 'mock',
-      CHAT_PROVIDER: 'openrouter',
-      OPENROUTER_API_KEY: 'test-server-key',
-      OPENROUTER_MODEL: 'provider/test-model',
+      DATA_MODE: 'cache',
+      CHAT_PROVIDER: 'none',
     });
+    const lightningProvider = new OpenMeteoCapeLightningProvider('cache');
     const service = new ChatService({
-      dataMode: 'mock',
+      dataMode: 'cache',
       config: config.chat,
-      riskDataService: new RiskDataService('mock', new MockLightningProvider()),
-      environmentDataService: new EnvironmentDataService({ mode: 'mock' }),
-      radarProvider: new MockRadarProvider(),
-      lightningProvider: new MockLightningProvider(),
-      stormTrackProvider: new MockStormTrackProvider(),
+      riskDataService: new RiskDataService('cache', lightningProvider),
+      environmentDataService: new EnvironmentDataService({ mode: 'cache' }),
+      radarProvider: new RainViewerRadarProvider('cache'),
+      lightningProvider,
+      stormTrackProvider: new GdacsStormTrackProvider('cache'),
       fetcher,
     });
     const answer = await service.respond(requestBody);
-    expect(answer.isMock).toBe(true);
+    expect(answer.fallback).toBe(true);
+    expect(answer.mode).toBe('cache');
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
@@ -178,18 +178,18 @@ describe('chat endpoint', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns a deterministic demo answer and never publishes the configured key', async () => {
+  it('returns a deterministic fallback answer when OpenRouter is disabled and never publishes the configured key', async () => {
     const app = createApp({
       config: loadConfig({
         NODE_ENV: 'test',
-        DATA_MODE: 'mock',
-        CHAT_PROVIDER: 'openrouter',
+        DATA_MODE: 'cache',
+        CHAT_PROVIDER: 'none',
         OPENROUTER_API_KEY: 'server-only-secret',
       }),
     });
     const response = await request(app).post('/api/chat').send(requestBody).expect(200);
-    expect(response.body.isMock).toBe(true);
-    expect(response.body.answer).toContain('ข้อมูลจำลอง');
+    expect(response.body.fallback).toBe(true);
+    expect(response.body.mode).toBe('cache');
     await request(app).post('/api/chat').send({ ...requestBody, context: 'fake' }).expect(400);
 
     const runtime = await request(app).get('/api/runtime-config').expect(200);

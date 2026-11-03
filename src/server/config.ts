@@ -30,7 +30,7 @@ const EnvSchema = z.object({
   STORM_CONE_KM_PER_30MIN: z.coerce.number().nonnegative().default(2.5),
   RADAR_PROVIDER: z.enum(['rainviewer', 'tmd']).default('rainviewer'),
   RADAR_MODE: z.enum(['live', 'cache']).optional(),
-  LIGHTNING_PROVIDER: z.literal('none').default('none'),
+  LIGHTNING_PROVIDER: z.enum(['open-meteo-cape', 'none']).default('open-meteo-cape'),
   LIGHTNING_MODE: z.enum(['live', 'cache']).optional(),
   STORM_TRACK_PROVIDER: z.literal('gdacs').default('gdacs'),
   STORM_TRACK_MODE: z.enum(['live', 'cache']).optional(),
@@ -69,7 +69,7 @@ export interface AppConfig {
   };
   providers: {
     radar: { id: 'rainviewer' | 'tmd'; mode: ProviderMode };
-    lightning: { id: 'none'; mode: ProviderMode };
+    lightning: { id: 'open-meteo-cape' | 'none'; mode: ProviderMode };
     stormTrack: { id: 'gdacs'; mode: ProviderMode };
   };
 }

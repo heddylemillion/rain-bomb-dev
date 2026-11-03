@@ -17,7 +17,7 @@ const RiskConfigSchema = z.object({
         'accum3hMm',
         'accum24hMm',
         'popMax3hPct',
-        'lightning30minCount',
+        'capeMax5hJkg',
         'pressureDrop3hHpa',
         'humidityPct',
         'tideFactor',
@@ -49,14 +49,20 @@ export interface CalculateRiskOptions {
   lightningWithin5km15minCount?: number | null;
   severeAlert?: 'moderate' | 'severe' | 'extreme' | null;
   fetchedAt?: string | null;
-  lightningSummary?: { count30min: number | null; nearestStrikeKm: number | null };
+  lightningSummary?: {
+    capeNowJkg?: number | null;
+    capeMax5hJkg?: number | null;
+    warning?: boolean;
+    count30min: number | null;
+    nearestStrikeKm: number | null;
+  };
 }
 
 const urgentFactorIds: ReadonlySet<RiskFactorId> = new Set([
   'rainNowMmHr',
   'peakRain3hMmHr',
   'accum3hMm',
-  'lightning30minCount',
+  'capeMax5hJkg',
   'pressureDrop3hHpa',
   'popMax3hPct',
 ]);

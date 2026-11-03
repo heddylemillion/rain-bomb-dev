@@ -322,6 +322,10 @@ export function SideBar({
 
                       <div className="text-[0.68rem] text-slate-200 flex flex-col gap-1 pt-1">
                         <div>
+                          <strong className="text-slate-100">{t('layerLightning')}:</strong>{' '}
+                          Open-Meteo CAPE · {t('capeWarningBadge')}
+                        </div>
+                        <div>
                           <strong className="text-slate-100">{t('layerStormTrack')}:</strong>{' '}
                           GDACS · {t('coneOfUncertainty')}
                         </div>

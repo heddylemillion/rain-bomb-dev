@@ -43,7 +43,7 @@ const FACTOR_NAME_KEYS: Record<RiskResult['factors'][number]['id'], MessageKey> 
   accum3hMm: 'factorAccum3h',
   accum24hMm: 'factorAccum24h',
   popMax3hPct: 'factorPopMax3h',
-  lightning30minCount: 'factorLightning30m',
+  capeMax5hJkg: 'factorCapeMax5h',
   pressureDrop3hHpa: 'factorPressureDrop3h',
   humidityPct: 'factorHumidity',
   tideFactor: 'factorTide',
@@ -55,7 +55,7 @@ const FACTOR_SOURCE_KEYS: Record<RiskResult['factors'][number]['id'], MessageKey
   accum3hMm: 'sourceForecast',
   accum24hMm: 'sourceForecast',
   popMax3hPct: 'sourceForecast',
-  lightning30minCount: 'sourceLightning',
+  capeMax5hJkg: 'sourceLightningCape',
   pressureDrop3hHpa: 'sourceObservationsArchive',
   humidityPct: 'sourceConditionsObservations',
   tideFactor: 'sourceMarine',
@@ -485,17 +485,21 @@ export function StatusCard({
                           : 'mediumConfidence'
                     )}`}
                   </dd>
-                  <dt className="text-slate-200">{t('lightningCount')}</dt>
+                  <dt className="text-slate-200">{t('capeNowLabel')}</dt>
                   <dd className="font-semibold text-slate-50 text-right">
-                    {risk.lightningSummary.count30min === null
+                    {risk.lightningSummary.capeNowJkg === null ||
+                    risk.lightningSummary.capeNowJkg === undefined
                       ? t('noData')
-                      : formatNumber(risk.lightningSummary.count30min, 0)}
+                      : `${formatNumber(risk.lightningSummary.capeNowJkg, 0)} J/kg`}
                   </dd>
-                  <dt className="text-slate-200">{t('nearestLightning')}</dt>
+                  <dt className="text-slate-200">{t('capeMax5hLabel')}</dt>
                   <dd className="font-semibold text-slate-50 text-right">
-                    {risk.lightningSummary.nearestStrikeKm === null
+                    {risk.lightningSummary.capeMax5hJkg === null ||
+                    risk.lightningSummary.capeMax5hJkg === undefined
                       ? t('noData')
-                      : `${formatNumber(risk.lightningSummary.nearestStrikeKm)} กม.`}
+                      : `${formatNumber(risk.lightningSummary.capeMax5hJkg, 0)} J/kg${
+                          risk.lightningSummary.warning ? ' ⚡' : ''
+                        }`}
                   </dd>
                 </dl>
 

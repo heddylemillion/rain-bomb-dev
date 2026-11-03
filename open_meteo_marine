@@ -1,9 +1,11 @@
 import { fetchWeatherApi } from "openmeteo";
 
 const params = {
-	latitude: 54.544587,
-	longitude: 10.227487,
+	latitude: 13.736717,
+	longitude: 100.523186,
 	hourly: "wave_height",
+	timezone: "Asia/Bangkok",
+	past_days: 7,
 	forecast_days: 7,
 };
 const url = "https://marine-api.open-meteo.com/v1/marine";
@@ -16,11 +18,14 @@ const response = responses[0];
 const latitude = response.latitude();
 const longitude = response.longitude();
 const elevation = response.elevation();
+const timezone = response.timezone();
+const timezoneAbbreviation = response.timezoneAbbreviation();
 const utcOffsetSeconds = response.utcOffsetSeconds();
 
 console.log(
 	`\nCoordinates: ${latitude}°N ${longitude}°E`,
 	`\nElevation: ${elevation}m asl`,
+	`\nTimezone: ${timezone} ${timezoneAbbreviation}`,
 	`\nTimezone difference to GMT+0: ${utcOffsetSeconds}s`,
 );
 

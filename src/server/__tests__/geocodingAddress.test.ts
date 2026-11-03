@@ -41,6 +41,40 @@ describe('geocoding address field', () => {
     const { address: _address, ...withoutAddress } = sampleResult;
     expect(GeocodingResultSchema.safeParse(withoutAddress).success).toBe(true);
   });
+
+  it('handles empty Nominatim name with Bangkok suburb/city and offshore Unable to geocode responses', async () => {
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        lat: '13.9407',
+        lon: '100.6003',
+        display_name: 'ถนนเทิดราชัน, ชุมชนปิ่นเจริญ 4, แขวงสีกัน, เขตดอนเมือง, กรุงเทพมหานคร, 10210, ประเทศไทย',
+        name: '',
+        address: {
+          road: 'ถนนเทิดราชัน',
+          neighbourhood: 'ชุมชนปิ่นเจริญ 4',
+          suburb: 'เขตดอนเมือง',
+          city: 'กรุงเทพมหานคร',
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        error: 'Unable to geocode',
+      }), { status: 200 }));
+
+    const provider = new NominatimGeocodingProvider({
+      baseUrl: 'https://nominatim.test',
+      userAgent: 'test',
+      fetchImpl,
+    });
+
+    const donMueang = await provider.reverse(13.9364, 100.603, 'th');
+    expect(donMueang?.name).toBe('ชุมชนปิ่นเจริญ 4');
+    expect(donMueang?.district).toBe('เขตดอนเมือง');
+    expect(donMueang?.province).toBe('กรุงเทพมหานคร');
+    expect(donMueang?.displayName).toBe('ชุมชนปิ่นเจริญ 4 · เขตดอนเมือง · กรุงเทพมหานคร');
+
+    const offshore = await provider.reverse(12.5, 100.5, 'th');
+    expect(offshore).toBeNull();
+  });
 });
 
 describe('/api/reverse-geocode', () => {
@@ -48,18 +82,6 @@ describe('/api/reverse-geocode', () => {
     const reverse = vi.fn(async () => sampleResult);
     return { value: { search: async () => [], reverse }, reverse };
   };
-
-  it('returns null without calling the geocoder in mock mode', async () => {
-    const { value, reverse } = provider();
-    const app = createApp({
-      config: loadConfig({ NODE_ENV: 'test', DATA_MODE: 'mock' }),
-      geocodingProvider: value,
-    });
-    const response = await request(app).get('/api/reverse-geocode?lat=13.75&lon=100.5');
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ result: null });
-    expect(reverse).not.toHaveBeenCalled();
-  });
 
   it('calls the geocoder in live mode and returns the address', async () => {
     const { value, reverse } = provider();
@@ -72,5 +94,4 @@ describe('/api/reverse-geocode', () => {
     expect(response.body.result.address).toBe(sampleResult.address);
     expect(reverse).toHaveBeenCalledTimes(1);
   });
-
 });

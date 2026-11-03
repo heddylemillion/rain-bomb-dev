@@ -27,7 +27,7 @@ if (
   typeof config.lightningProvider !== 'object' ||
   config.lightningProvider === null ||
   !('id' in config.lightningProvider) ||
-  config.lightningProvider.id !== 'none'
+  (config.lightningProvider.id !== 'open-meteo-cape' && config.lightningProvider.id !== 'none')
 ) {
   throw new Error('Runtime configuration reports an unknown lightning provider.');
 }

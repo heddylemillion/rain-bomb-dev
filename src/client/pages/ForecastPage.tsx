@@ -157,7 +157,8 @@ export function ForecastPage(): React.ReactNode {
                   <th scope="col" className="py-1.5 px-1.5 text-right">{t('forecastTempCol')}</th>
                   <th scope="col" className="py-1.5 px-1.5 text-right">{t('forecastRainCol')}</th>
                   <th scope="col" className="py-1.5 px-1.5 text-right">{t('forecastPopCol')}</th>
-                  <th scope="col" className="py-1.5 pl-1.5 text-right">{t('forecastWindCol')}</th>
+                  <th scope="col" className="py-1.5 px-1.5 text-right">{t('forecastWindCol')}</th>
+                  <th scope="col" className="py-1.5 pl-1.5 text-right">{t('forecastCapeCol')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -173,8 +174,13 @@ export function ForecastPage(): React.ReactNode {
                     <td className="py-1.5 px-1.5 text-right whitespace-nowrap">
                       {formatMetric(entry.precipitationProbabilityPct, 0)}%
                     </td>
-                    <td className="py-1.5 pl-1.5 text-right whitespace-nowrap">
+                    <td className="py-1.5 px-1.5 text-right whitespace-nowrap">
                       {formatMetric(entry.windSpeedKmh)}
+                    </td>
+                    <td className="py-1.5 pl-1.5 text-right whitespace-nowrap">
+                      {entry.capeJkg === null
+                        ? '—'
+                        : `${formatMetric(entry.capeJkg, 0)}${entry.capeJkg > 1000 ? ' ⚡' : ''}`}
                     </td>
                   </tr>
                 ))}

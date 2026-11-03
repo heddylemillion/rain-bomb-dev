@@ -343,9 +343,7 @@ button:disabled {
   font-family: inherit;
 }
 
-.risk-marker-wrapper,
-.mock-storm-wrapper,
-.mock-lightning-wrapper {
+.risk-marker-wrapper {
   background: transparent;
   border: 0;
 }
@@ -395,59 +393,6 @@ button:disabled {
   background-color: #38bdf8;
   border: 2.5px solid #ffffff;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.55);
-}
-
-.mock-storm-dot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 9999px;
-  background-color: rgb(15 23 42 / 0.85);
-  color: #e0f2fe;
-  border: 1.5px solid rgb(125 211 252 / 0.65);
-  font-size: 13px;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.45);
-}
-
-.mock-storm-dot.is-selected {
-  background-color: #0c4a6e;
-  border-color: #38bdf8;
-  box-shadow: 0 0 0 2px #38bdf8, 0 3px 10px rgb(0 0 0 / 0.6);
-}
-
-.mock-lightning-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  height: 22px;
-  padding: 0 5px;
-  border-radius: 9999px;
-  font-size: 11px;
-  font-weight: 700;
-  background-color: rgb(15 23 42 / 0.88);
-  color: #fde047;
-  border: 1px solid rgb(250 204 21 / 0.65);
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.45);
-  white-space: nowrap;
-}
-
-.mock-lightning-mid {
-  color: #fcd34d;
-  opacity: 0.9;
-}
-
-.mock-lightning-old {
-  color: #e2e8f0;
-  border-color: rgb(226 232 240 / 0.45);
-  opacity: 0.78;
-}
-
-.mock-lightning-count {
-  font-size: 10px;
-  color: #f8fafc;
 }
 
 .leaflet-tooltip.glass-leaflet-tooltip {

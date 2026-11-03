@@ -48,9 +48,9 @@ export interface RuntimeConfigData {
   stormConeKmPer30Min: number;
   radarProvider: { id: 'rainviewer' | 'tmd'; mode: 'live' | 'cache' };
   lightningProvider: {
-    id: 'none';
+    id: 'open-meteo-cape' | 'none';
     mode: 'live' | 'cache';
-    display: 'counts-only';
+    display: 'cape' | 'counts-only';
   };
   stormTrackProvider: { id: 'gdacs'; mode: 'live' | 'cache' };
 }
@@ -158,6 +158,7 @@ export function OverviewPage({
   const [focusSearchRequest, setFocusSearchRequest] = useState(0);
   const mapRef = useRef<L.Map | null>(null);
   const reverseRequestId = useRef(0);
+  const reverseAbortRef = useRef<AbortController | null>(null);
   const reportBaseTilesFailure = useCallback((failed: boolean, fellBackToOsm = false) => {
     setBaseTilesFailed(failed);
     setBaseTilesFallback(fellBackToOsm);
@@ -203,32 +204,30 @@ export function OverviewPage({
   }, [place.lat, place.lon, place.name, searchParams]);
 
   const dataMode = runtimeConfig?.dataMode ?? 'live';
+  const radarProviderId = runtimeConfig?.radarProvider.id ?? 'rainviewer';
+  const lightningProviderId = runtimeConfig?.lightningProvider.id ?? 'open-meteo-cape';
+  const stormTrackProviderId = runtimeConfig?.stormTrackProvider.id ?? 'gdacs';
 
   const radarFramesQuery = useQuery<RadarFramesResponse>({
-    queryKey: ['radar-frames', runtimeConfig?.radarProvider.id, place.lat.toFixed(2), place.lon.toFixed(2)],
+    queryKey: ['radar-frames', radarProviderId, place.lat.toFixed(2), place.lon.toFixed(2)],
     queryFn: ({ signal }) => fetchRadarFrames(place.lat, place.lon, signal),
-    enabled: runtimeConfig !== undefined,
+    retry: 2,
     staleTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,
   });
   const lightningSummaryQuery = useQuery<LightningSummary>({
     queryKey: ['lightning-summary', place.lat.toFixed(2), place.lon.toFixed(2)],
     queryFn: ({ signal }) => fetchLightningSummary(place.lat, place.lon, signal),
-    enabled:
-      runtimeConfig !== undefined &&
-      runtimeConfig.lightningProvider.id !== 'none' &&
-      runtimeConfig.lightningProvider.display === 'counts-only' &&
-      activeOverlays.has('lightning'),
+    enabled: lightningProviderId !== 'none' && activeOverlays.has('lightning'),
+    retry: 2,
     staleTime: 2 * 60 * 1000,
     refetchInterval: 2 * 60 * 1000,
   });
   const stormTracksQuery = useQuery<StormTrackFeatureCollection>({
-    queryKey: ['storm-tracks', runtimeConfig?.stormTrackProvider.id],
+    queryKey: ['storm-tracks', stormTrackProviderId],
     queryFn: ({ signal }) => fetchStormTracks(signal),
-    enabled:
-      runtimeConfig !== undefined &&
-      runtimeConfig.stormTrackProvider.id === 'gdacs' &&
-      activeOverlays.has('storm'),
+    enabled: stormTrackProviderId === 'gdacs' && activeOverlays.has('storm'),
+    retry: 2,
     staleTime: 30 * 60 * 1000,
     refetchInterval: 30 * 60 * 1000,
   });
@@ -240,12 +239,13 @@ export function OverviewPage({
   const communitiesQuery = useQuery({
     queryKey: ['communities'],
     queryFn: ({ signal }) => fetchCommunities(signal),
+    retry: 2,
   });
 
   const pointRiskQuery = useQuery({
     queryKey: ['point-risk', place.lat.toFixed(4), place.lon.toFixed(4)],
     queryFn: ({ signal }) => fetchPointRisk(place.lat, place.lon, signal),
-    retry: 1,
+    retry: 2,
     refetchInterval: 5 * 60 * 1000,
     refetchIntervalInBackground: false,
   });
@@ -257,6 +257,7 @@ export function OverviewPage({
     queryFn: ({ signal }) =>
       fetchAreaEnvironment(place.lat, place.lon, selectedCommunity.id, signal),
     enabled: tabVisible,
+    retry: 2,
     staleTime: 45 * 60 * 1000,
     refetchInterval: () => (tabVisible ? 45 * 60 * 1000 : false),
     refetchIntervalInBackground: false,
@@ -373,10 +374,13 @@ export function OverviewPage({
         setLocationMessage(t('pointOutsideThailand'));
         return;
       }
+      reverseAbortRef.current?.abort();
+      const controller = new AbortController();
+      reverseAbortRef.current = controller;
       const requestId = ++reverseRequestId.current;
       choosePoint(lat, lon, fallback);
       try {
-        const result = await reverseGeocode(lat, lon, new AbortController().signal);
+        const result = await reverseGeocode(lat, lon, controller.signal);
         if (result && requestId === reverseRequestId.current) {
           const friendlyName = result.displayName || result.name;
           const resolved: SelectedPlace = {
@@ -396,7 +400,9 @@ export function OverviewPage({
           rememberPlace(result);
         }
       } catch {
-        setLocationMessage(t('reverseGeocodeFailed'));
+        if (!controller.signal.aborted && requestId === reverseRequestId.current) {
+          setLocationMessage(t('reverseGeocodeFailed'));
+        }
       }
     },
     [choosePoint, setSearchParams, t]
@@ -495,7 +501,11 @@ export function OverviewPage({
   );
 
   const showLightningUnconfigured =
-    activeOverlays.has('lightning') && runtimeConfig?.lightningProvider.id === 'none';
+    activeOverlays.has('lightning') && lightningProviderId === 'none';
+  const showLightningCapeBanner =
+    activeOverlays.has('lightning') &&
+    lightningSummaryQuery.data !== undefined &&
+    lightningSummaryQuery.data.capeMax5hJkg !== null;
 
   return (
     <div className="relative w-screen h-[100dvh] overflow-hidden select-none sm:select-auto bg-slate-950">
@@ -513,11 +523,11 @@ export function OverviewPage({
         selectedSoilKey={soilQuery.data?.soil ? soilFeatureKey(soilQuery.data.soil) : null}
         showSoilLayer={activeOverlays.has('soil')}
         radarFrameTime={radarFrameTime}
-        radarProviderId={runtimeConfig?.radarProvider.id ?? 'rainviewer'}
+        radarProviderId={radarProviderId}
         radarMaxZoom={radarFramesQuery.data?.maxZoom ?? 7}
         lightningSummary={lightningSummaryQuery.data ?? null}
         stormTracks={stormTracksQuery.data ?? null}
-        stormTrackProviderId={runtimeConfig?.stormTrackProvider.id ?? 'gdacs'}
+        stormTrackProviderId={stormTrackProviderId}
         radarOpacity={radarOpacity}
         userPosition={place}
         onMapReady={(map) => {
@@ -615,6 +625,7 @@ export function OverviewPage({
             (activeOverlays.has('radar') && radarFramesQuery.data?.coverage === 'none') ||
             lightningSummaryQuery.isError ||
             showLightningUnconfigured ||
+            showLightningCapeBanner ||
             (activeOverlays.has('storm') && stormTracksQuery.isError) ||
             Boolean(locationMessage)) && (
             <div className="flex flex-col items-center gap-1 max-w-[min(560px,calc(100vw-16px))] pointer-events-auto">
@@ -678,6 +689,29 @@ export function OverviewPage({
               {showLightningUnconfigured && (
                 <p className="glass-panel rounded-xl px-3 py-1 text-xs text-slate-100" role="status">
                   ไม่มีผู้ให้บริการฟ้าผ่า
+                </p>
+              )}
+              {showLightningCapeBanner && lightningSummaryQuery.data && (
+                <p
+                  data-testid="lightning-cape-status"
+                  className="glass-panel rounded-xl px-3 py-1 text-xs text-slate-100 flex items-center gap-1.5"
+                  role="status"
+                >
+                  <span aria-hidden="true">⚡</span>
+                  <span>
+                    CAPE: {Math.round(lightningSummaryQuery.data.capeNowJkg ?? 0).toLocaleString('th-TH')} J/kg
+                    {' · '}
+                    {t('capeMax5hLabel')}{' '}
+                    {Math.round(lightningSummaryQuery.data.capeMax5hJkg ?? 0).toLocaleString('th-TH')} J/kg
+                    {' · '}
+                    <strong className={lightningSummaryQuery.data.warning ? 'text-amber-300' : 'text-sky-200'}>
+                      {lightningSummaryQuery.data.warning
+                        ? t('capeWarningBadge')
+                        : lightningSummaryQuery.data.potentialLevel === 'moderate'
+                          ? t('capeModerateBadge')
+                          : t('capeLowBadge')}
+                    </strong>
+                  </span>
                 </p>
               )}
               {activeOverlays.has('storm') && stormTracksQuery.isError && (

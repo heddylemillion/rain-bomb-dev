@@ -78,7 +78,11 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       dataMode: deps.dataMode,
       stormConeKmPer30Min: deps.stormConeKmPer30Min,
       radarProvider: { id: deps.radarProvider.id, mode: deps.radarProvider.mode },
-      lightningProvider: { id: deps.lightningProvider.id, mode: deps.lightningProvider.mode, display: 'counts-only' },
+      lightningProvider: {
+        id: deps.lightningProvider.id,
+        mode: deps.lightningProvider.mode,
+        display: deps.lightningProvider.id === 'open-meteo-cape' ? 'cape' : 'counts-only',
+      },
       stormTrackProvider: { id: deps.stormTrackProvider.id, mode: deps.stormTrackProvider.mode },
     });
   });
@@ -231,13 +235,24 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     }
     recordRequest('lightning');
     try {
-      const summary = await deps.lightningProvider.getSummary(point.data.lat, point.data.lon);
-      lightningCoverage = summary.count30min === null ? 'none' : 'available';
-      if (summary.count30min !== null) lastSuccess.lightning = summary.observedAt;
+      const summary = await deps.lightningProvider.getSummary(
+        Number(point.data.lat.toFixed(2)),
+        Number(point.data.lon.toFixed(2))
+      );
+      const hasData = summary.capeMax5hJkg !== null || summary.count30min !== null;
+      lightningCoverage = hasData ? 'available' : 'none';
+      if (hasData && summary.observedAt) lastSuccess.lightning = summary.observedAt;
+      const display = deps.lightningProvider.id === 'open-meteo-cape' ? 'cape' : 'counts-only';
+      const noticeTh =
+        deps.lightningProvider.id === 'none'
+          ? 'ไม่มีผู้ให้บริการฟ้าผ่า'
+          : summary.warning
+            ? 'เตือนแนวโน้มเกิดฟ้าผ่า (CAPE > 1,000 J/kg ใน 5 ชม. ข้างหน้า)'
+            : null;
       res.status(200).set('Cache-Control', 'private, max-age=120').json({
         ...summary,
-        display: 'counts-only',
-        noticeTh: deps.lightningProvider.id === 'none' ? 'ไม่มีผู้ให้บริการฟ้าผ่า' : null,
+        display,
+        noticeTh,
       });
     } catch (error: unknown) {
       const message = redactSecretsInText(error instanceof Error ? error.message : String(error));

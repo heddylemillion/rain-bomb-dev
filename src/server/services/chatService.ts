@@ -478,10 +478,17 @@ export class ChatService {
         : 'ข้อมูลเส้นทางพายุไม่มีข้อมูลในขณะนี้',
     });
     const lightningId = `A${sources.length + 1}`;
+    const capeNow = risk?.lightningSummary.capeNowJkg ?? null;
+    const capeMax = risk?.lightningSummary.capeMax5hJkg ?? null;
+    const capeWarn = risk?.lightningSummary.warning ?? false;
     sources.push({
       id: lightningId,
-      title: 'ฟ้าผ่าและเซนเซอร์',
-      text: `ฟ้าผ่า: ${this.options.lightningProvider.id === 'none' ? 'ไม่มีผู้ให้บริการ' : `ผู้ให้บริการ ${this.options.lightningProvider.id}, โหมด ${this.options.lightningProvider.mode}`}; IoT readings=unavailable`,
+      title: 'แนวโน้มฟ้าผ่า (CAPE) และเซนเซอร์',
+      text: `ฟ้าผ่า: ${
+        this.options.lightningProvider.id === 'none'
+          ? 'ไม่มีผู้ให้บริการ'
+          : `ผู้ให้บริการ ${this.options.lightningProvider.id}, โหมด ${this.options.lightningProvider.mode}; CAPE ปัจจุบัน=${capeNow === null ? 'ไม่มีข้อมูล' : `${capeNow} J/kg`}; CAPE สูงสุด 5 ชม.=${capeMax === null ? 'ไม่มีข้อมูล' : `${capeMax} J/kg`}; เตือนแนวโน้มฟ้าผ่า (>1000 J/kg)=${capeWarn ? 'ใช่' : 'ไม่ใช่'}`
+      }; IoT readings=unavailable`,
     });
     const name = scrubPii(cleanAreaName(input.areaName));
     sources.unshift({

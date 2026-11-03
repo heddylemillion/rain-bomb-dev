@@ -1,0 +1,22 @@
+import requests
+
+url = "https://api.open-meteo.com/v1/forecast"
+params = {
+    "latitude": 13.736717,  # ตัวอย่างพิกัด
+    "longitude": 100.523186,
+    "hourly": ["cape"],   # ระบุตัวแปรที่ต้องการ เช่น cape
+    "timezone": "Asia/Bangkok"
+}
+
+response = requests.get(url, params=params, timeout=10)
+response.raise_for_status()
+data = response.json()
+
+times = data["hourly"]["time"]
+cape_values = data["hourly"]["cape"]
+
+# ตรวจสอบค่าพลังงานใน 5 ชั่วโมงแรกเพื่อประเมินความเสี่ยง
+for i in range(5):
+    print(f"Time: {times[i]} | CAPE: {cape_values[i]} J/kg")
+    if cape_values[i] > 1000:
+        print("warning: lightning potential")

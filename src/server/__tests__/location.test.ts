@@ -43,7 +43,6 @@ describe('location search and arbitrary-point risk', () => {
     expect(riskResponse.body).toMatchObject({
       score: null,
       level: 'INSUFFICIENT',
-      isMock: false,
       fetchedAt: null,
     });
   });

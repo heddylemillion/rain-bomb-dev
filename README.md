@@ -26,15 +26,12 @@ style fails to load.
 
 ## Data modes and providers
 
-`DATA_MODE` defaults to `mock`; provider-specific `RADAR_MODE`,
-`LIGHTNING_MODE`, and `STORM_TRACK_MODE` can override it with `live`, `mock`,
-or `cache`. The provider defaults are RainViewer radar, no lightning provider,
-and GDACS storm tracks. In mock mode, all provider adapters and server-side
-weather data are local and make no outbound requests. Mock lightning is a
-visual simulation and is not passed into live risk inputs. In live mode,
-lightning is unavailable until a provider is configured; the map says
-`ไม่มีผู้ให้บริการฟ้าผ่า`, and the risk model excludes that factor and
-renormalizes the remaining weights, lowering confidence.
+`DATA_MODE` defaults to `live` (`live` or `cache`); provider-specific
+`RADAR_MODE`, `LIGHTNING_MODE`, and `STORM_TRACK_MODE` can override it with
+`live` or `cache`. The provider defaults are RainViewer radar, Open-Meteo CAPE
+lightning potential (`open-meteo-cape`), and GDACS storm tracks. In `cache`
+mode, weather adapters use only already-cached data and make no outbound
+requests.
 
 The system-status page reports provider mode, coverage test, last success,
 quota use, attribution, and licence limits.
@@ -54,26 +51,27 @@ quota use, attribution, and licence limits.
 - **GDACS** provides active tropical-cyclone tracks and forecast cones, cached
   for 30 minutes. Retain the linked attribution **GDACS (EC-JRC / UN OCHA)**;
   it is situational-awareness information, not an official local warning.
-- **Open-Meteo** provides live forecast, elevation, and marine context. Its
-  free API tier is for non-commercial use; commercial use requires an
-  appropriate plan. Review the
-  [pricing and terms](https://open-meteo.com/en/pricing) before deployment.
+- **Open-Meteo** (`openmeteo` SDK) provides live hourly forecast
+  (`api.open-meteo.com/v1/forecast`), 5-hour CAPE lightning potential
+  (`hourly=cape`, warning threshold `> 1,000 J/kg`), terrain elevation, and
+  marine forecast (`marine-api.open-meteo.com/v1/marine`). Its free API tier is
+  for non-commercial use; commercial use requires an appropriate plan. Review
+  the [pricing and terms](https://open-meteo.com/en/pricing) before deployment.
   Open-Meteo marine values are model forecasts at configured reference points,
-  not local tide observations. Elevation is static and is not flood depth.
+  not local tide observations. CAPE indicates convective lightning potential,
+  not observed lightning strike sensor counts. Elevation is static and is not
+  flood depth.
 
 ## Risk model and local context
 
-`GET /api/risk?lat=...&lon=...` accepts Thailand coordinates. The weighted
-linear model and thresholds are in `config/risk.json`, marked **TO BE
+`GET /api/risk?lat=...&lon=...` accepts Thailand coordinates, and
+`GET /api/forecast?lat=...&lon=...` supplies the 24-hour hourly forecast. The
+weighted linear model and thresholds are in `config/risk.json`, marked **TO BE
 CALIBRATED**; they have not been calibrated against Thai flood events. Missing
 factors stay unavailable rather than being replaced with zero. When less than
 40% of factor weight is available, the response is `INSUFFICIENT`; otherwise
 the score renormalizes over available factors and confidence reflects missing
 weight.
-
-Mock scenarios (`calm`, `moderate`, and `burst`) are deterministic for the
-scenario/date and drive only mock overlays and mock risk results. The scenario
-selector and timeline are available in mock mode.
 
 `GET /api/environment` supplies elevation and offshore marine context. Marine
 datum is global mean sea level, not Thai รทก. or chart datum; inland values are
@@ -96,8 +94,7 @@ identified as unavailable; they are never synthesized. The model cannot
 change the risk score, level, or alert type.
 
 The assistant is deterministic/off by default. `CHAT_PROVIDER=none` returns a
-rule-based response without an AI call. `DATA_MODE=mock` forces the assistant
-to mock mode and makes no OpenRouter request. To enable OpenRouter, set these
+rule-based response without an AI call. To enable OpenRouter, set these
 backend-only variables in your local `.env`:
 
 ```dotenv

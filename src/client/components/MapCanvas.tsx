@@ -1,8 +1,10 @@
-import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ErrorInfo, PropsWithChildren } from 'react';
 import L from 'leaflet';
-import { Map as MapLibreMap } from 'maplibre-gl';
+import { Map as MapLibreMap, setWorkerUrl } from 'maplibre-gl';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import {
+  Circle,
   CircleMarker,
   GeoJSON,
   MapContainer,
@@ -14,6 +16,8 @@ import {
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
+
+setWorkerUrl(maplibreWorkerUrl);
 import type {
   Community,
   OverlayLayerId,
@@ -317,28 +321,34 @@ function VectorBasemap({
   const leafletMap = useMap();
 
   useEffect(() => {
-    const pane = leafletMap.createPane('vector-basemap');
-    pane.style.zIndex = '199';
-    pane.style.width = '100%';
-    pane.style.height = '100%';
-    pane.style.pointerEvents = 'none';
-    pane.replaceChildren();
+    const mapRoot = leafletMap.getContainer();
     const container = document.createElement('div');
+    container.dataset['testid'] = 'vector-basemap-layer';
+    container.style.position = 'absolute';
+    container.style.inset = '0';
     container.style.width = '100%';
     container.style.height = '100%';
+    container.style.zIndex = '0';
     container.style.pointerEvents = 'none';
-    pane.append(container);
+    mapRoot.prepend(container);
 
     const center = leafletMap.getCenter();
-    const map = new MapLibreMap({
-      container,
-      style: styleUrl,
-      center: [center.lng, center.lat],
-      zoom: leafletMap.getZoom(),
-      interactive: false,
-      attributionControl: false,
-      maxZoom: 19,
-    });
+    let map: MapLibreMap;
+    try {
+      map = new MapLibreMap({
+        container,
+        style: styleUrl,
+        center: [center.lng, center.lat],
+        zoom: Math.max(0, leafletMap.getZoom() - 1),
+        interactive: false,
+        attributionControl: false,
+        maxZoom: 19,
+      });
+    } catch {
+      container.remove();
+      onFailure();
+      return undefined;
+    }
     let failed = false;
     const fail = (): void => {
       if (failed) return;
@@ -350,6 +360,7 @@ function VectorBasemap({
     }, 15_000);
     map.once('load', () => {
       window.clearTimeout(timeout);
+      map.resize();
       onLoad();
     });
     map.on('error', () => {
@@ -357,20 +368,23 @@ function VectorBasemap({
     });
     const syncView = (): void => {
       const current = leafletMap.getCenter();
-      map.jumpTo({ center: [current.lng, current.lat], zoom: leafletMap.getZoom() });
+      map.jumpTo({
+        center: [current.lng, current.lat],
+        zoom: Math.max(0, leafletMap.getZoom() - 1),
+      });
     };
     const resize = (): void => {
       map.resize();
     };
-    leafletMap.on('move zoom', syncView);
+    leafletMap.on('move zoom moveend zoomend', syncView);
     leafletMap.on('resize', resize);
 
     return () => {
       window.clearTimeout(timeout);
-      leafletMap.off('move zoom', syncView);
+      leafletMap.off('move zoom moveend zoomend', syncView);
       leafletMap.off('resize', resize);
       map.remove();
-      pane.replaceChildren();
+      container.remove();
     };
   }, [leafletMap, onFailure, onLoad, styleUrl]);
 
@@ -407,6 +421,7 @@ export function MapCanvas({
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     []
   );
+  const selfHostedBasemap = import.meta.env.VITE_BASEMAP_PROVIDER === 'selfhosted';
   const configuredStyleUrl = getBasemapStyleUrl(
     import.meta.env.VITE_BASEMAP_PROVIDER,
     import.meta.env.VITE_BASEMAP_STYLE_URL
@@ -416,16 +431,16 @@ export function MapCanvas({
 
   useEffect(() => {
     setBaseStyleFailed(!configuredStyleUrl);
-    if (!configuredStyleUrl) onBaseTilesFailed(true, true);
-  }, [baseTileRetry, configuredStyleUrl, onBaseTilesFailed]);
+    if (!configuredStyleUrl) onBaseTilesFailed(selfHostedBasemap, true);
+  }, [baseTileRetry, configuredStyleUrl, onBaseTilesFailed, selfHostedBasemap]);
   const reportBaseStyleLoaded = useCallback(() => {
     setBaseStyleFailed(false);
     onBaseTilesFailed(false, false);
   }, [onBaseTilesFailed]);
   const reportBaseStyleFailure = useCallback(() => {
     setBaseStyleFailed(true);
-    onBaseTilesFailed(true, true);
-  }, [onBaseTilesFailed]);
+    onBaseTilesFailed(selfHostedBasemap, true);
+  }, [onBaseTilesFailed, selfHostedBasemap]);
   const initialCenter = useMemo<[number, number]>(
     () =>
       communities[0]
@@ -501,7 +516,7 @@ export function MapCanvas({
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
             maxZoom={19}
             eventHandlers={{
-              tileerror: () => onBaseTilesFailed(true, true),
+              tileerror: () => onBaseTilesFailed(true, false),
             }}
           />
         )}
@@ -543,8 +558,57 @@ export function MapCanvas({
           />
         )}
         {overlays.has('lightning') &&
-          userPosition && lightningSummary?.count30min !== null &&
-          lightningSummary?.count30min !== undefined && (
+          lightningSummary &&
+          lightningSummary.cells.length > 0 &&
+          lightningSummary.cells.map((cell) => {
+            const isHigh = cell.potentialLevel === 'high';
+            const isModerate = cell.potentialLevel === 'moderate';
+            const stroke = isHigh ? '#facc15' : isModerate ? '#38bdf8' : '#94a3b8';
+            const fill = isHigh ? '#f59e0b' : isModerate ? '#38bdf8' : '#94a3b8';
+            const fillOpacity = isHigh ? 0.2 : isModerate ? 0.12 : 0.06;
+            const statusText = isHigh
+              ? t('capeWarningBadge')
+              : isModerate
+                ? t('capeModerateBadge')
+                : t('capeLowBadge');
+            return (
+              <Fragment key={`cape-${cell.lat.toFixed(2)}-${cell.lon.toFixed(2)}`}>
+                <Circle
+                  center={[cell.lat, cell.lon]}
+                  radius={11500}
+                  pathOptions={{
+                    color: stroke,
+                    weight: isHigh ? 1.8 : 1.2,
+                    dashArray: isHigh ? '5 4' : undefined,
+                    fillColor: fill,
+                    fillOpacity,
+                  }}
+                >
+                  <Tooltip direction="top" className="glass-leaflet-tooltip" sticky>
+                    ⚡ CAPE {cell.capeNowJkg === null ? '—' : Math.round(cell.capeNowJkg)} J/kg ·{' '}
+                    {t('capeMax5hLabel')}{' '}
+                    {cell.capeMax5hJkg === null ? '—' : Math.round(cell.capeMax5hJkg)} J/kg ·{' '}
+                    {statusText}
+                  </Tooltip>
+                </Circle>
+                <CircleMarker
+                  center={[cell.lat, cell.lon]}
+                  radius={isHigh ? 5 : 3.5}
+                  pathOptions={{
+                    color: stroke,
+                    fillColor: stroke,
+                    fillOpacity: 0.85,
+                    weight: 1,
+                  }}
+                />
+              </Fragment>
+            );
+          })}
+        {overlays.has('lightning') &&
+          lightningSummary &&
+          lightningSummary.cells.length === 0 &&
+          userPosition &&
+          lightningSummary.count30min !== null && (
             <CircleMarker
               center={[userPosition.lat, userPosition.lon]}
               radius={12}
