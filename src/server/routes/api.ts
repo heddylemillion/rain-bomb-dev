@@ -250,7 +250,7 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     res.status(200).json({
       soil: lookupSoil(parsed.data.lat, parsed.data.lon),
       source: 'LDD 1:25,000',
-      coverage: 'pathum-thani',
+      coverage: 'bangkok-region',
     });
   });
 

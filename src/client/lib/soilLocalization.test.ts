@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { MessageKey } from '../i18n.js';
 import type { SoilInfo } from '../../shared/contracts.js';
 import { translateSoilName, translateSoilValue } from './soilLocalization.js';
+
+const soilDataset: { features: { properties: SoilInfo }[] } = JSON.parse(
+  readFileSync(new URL('../../../data/soil-bangkok-region.geojson', import.meta.url), 'utf8')
+);
 
 const english: Partial<Record<MessageKey, string>> = {
   soilSeriesAy: 'Ayutthaya',
@@ -43,24 +48,56 @@ describe('soil display localization', () => {
   });
 
   it('does not expose Thai text for any known soil values in English mode', () => {
-    const soilCodes = ['Rs', 'Ay', 'Tan', 'Cc', 'W', 'Se', 'Ok', 'Dm', 'Tb', 'Bk', 'Bn', 'Bp', 'Cm'];
+    const soilCodes = [
+      'Rs', 'Ay', 'AQ', 'Tan', 'Cc', 'W', 'Bl', 'Se', 'Ok', 'Dm', 'Dn', 'Ks', 'Np',
+      'Rb', 'Sb', 'Tb', 'Bk', 'Bn', 'Bp', 'Cm', 'Sm', 'Sso', 'Tc', 'Tm', 'Bpg', 'SALT FARM',
+    ];
     const soilValues = [
       'ดินเหนียว',
       'ดินเหนียวปนทรายแป้ง',
       'ดินร่วนปนทรายแป้ง',
+      'ดินร่วนเหนียวปนทรายแป้ง',
       'กรดจัดมาก',
+      'กรดจัดถึงกรดเล็กน้อย',
       'กรดจัดถึงด่างปานกลาง',
       'กรดปานกลางถึงกรดเล็กน้อย',
+      'กรดปานกลางถึงด่างปานกลาง',
+      'กรดปานกลางถึงเป็นกลาง',
+      'กรดเล็กน้อยถึงเป็นกลาง',
       'กรดจัดมากถึงกรดจัด',
       'กรดจัดมากถึงเป็นกลาง',
       'ปานกลาง',
+      'สูง',
+      'กรุงเทพมหานคร',
+      'กำแพงแสน',
       'คลองหลวง',
+      'ดอนตูม',
+      'นครชัยศรี',
       'ธัญบุรี',
+      'บางกรวย',
+      'บางคนที',
+      'บางบัวทอง',
+      'บางบ่อ',
+      'บางพลี',
+      'บางเลน',
+      'บางเสาธง',
+      'บางใหญ่',
       'เมือง',
       'ลาดหลุมแก้ว',
       'ลำลูกกา',
+      'ปากเกร็ด',
+      'พระประแดง',
+      'พระสมุทรเจดีย์',
+      'พุทธมณฑล',
+      'สามพราน',
       'สามโคก',
       'หนองเสือ',
+      'อัมพวา',
+      'เมืองนครปฐม',
+      'เมืองนนทบุรี',
+      'เมืองสมุทรปราการ',
+      'เมืองสมุทรสงคราม',
+      'ไทรน้อย',
     ];
 
     for (const soilCode of soilCodes) {
@@ -68,6 +105,23 @@ describe('soil display localization', () => {
     }
     for (const value of soilValues) {
       expect(translateSoilValue(value, 'en', translate)).not.toMatch(/[\u0E00-\u0E7F]/u);
+    }
+  });
+
+  it('localizes all soil series and populated values in the combined dataset', () => {
+    for (const feature of soilDataset.features) {
+      const { properties } = feature;
+      expect(translateSoilName(properties, 'en', translate)).not.toBe('No data');
+      for (const value of [
+        properties.textureTh,
+        properties.phTopTh,
+        properties.fertilityTh,
+        properties.amphoeTh,
+      ]) {
+        if (value && value !== '-') {
+          expect(translateSoilValue(value, 'en', translate)).not.toBe('No data');
+        }
+      }
     }
   });
 });

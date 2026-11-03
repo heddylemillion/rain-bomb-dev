@@ -1,10 +1,9 @@
-import { Component, Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, Fragment, useEffect, useMemo, useState } from 'react';
 import type { ErrorInfo, PropsWithChildren } from 'react';
 import L from 'leaflet';
 import {
   Circle,
   CircleMarker,
-  GeoJSON,
   MapContainer,
   Marker,
   Polygon,
@@ -20,8 +19,6 @@ import type {
   Community,
   OverlayLayerId,
   RiskResult,
-  SoilFeatureCollection,
-  SoilInfo,
 } from '../../shared/contracts.js';
 import {
   activeCell,
@@ -37,10 +34,8 @@ import {
   type MockScenarioName,
   type MockStormCell,
 } from '../../shared/mockWeatherScenario.js';
-import { useTranslation, type MessageKey } from '../i18n.js';
+import { useTranslation } from '../i18n.js';
 import { LEVEL_KEYS, LEVEL_SYMBOL, worstLevel, type RiskLevel } from '../lib/risk.js';
-import { translateSoilName, translateSoilValue } from '../lib/soilLocalization.js';
-import { soilPathStyle } from '../lib/soilStyle.js';
 
 export interface UserPosition {
   lat: number;
@@ -55,9 +50,6 @@ interface MapCanvasProps {
   onSelectCommunity: (communityId: string) => void;
   onMapPick: (point: UserPosition) => void;
   overlays: ReadonlySet<OverlayLayerId>;
-  soilLayer: SoilFeatureCollection | null;
-  selectedSoilKey: string | null;
-  showSoilLayer: boolean;
   radarHours: number;
   mockMode: boolean;
   scenarioName: MockScenarioName;
@@ -77,17 +69,6 @@ const BLANK_TILE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 const OVERLAY_Z: Record<OverlayLayerId, number> = { radar: 300, storm: 310, lightning: 320 };
-
-function bindSoilTooltip(
-  feature: { properties: SoilInfo },
-  layer: L.Layer,
-  language: 'th' | 'en',
-  t: (key: MessageKey) => string
-): void {
-  const soilName = translateSoilName(feature.properties, language, t);
-  const texture = translateSoilValue(feature.properties.textureTh, language, t);
-  layer.bindTooltip(`${soilName} (${feature.properties.soilCode}) · ${texture}`);
-}
 
 const TILE_LAYER_CODE: Record<OverlayLayerId, string> = {
   radar: 'radar-global',
@@ -756,15 +737,6 @@ function ExposeMap({ onMapReady }: { onMapReady: (map: L.Map) => void }): React.
   return null;
 }
 
-function SoilPane(): null {
-  const map = useMap();
-  useMemo(() => {
-    const pane = map.getPane('soilPane') ?? map.createPane('soilPane');
-    pane.style.zIndex = '280';
-  }, [map]);
-  return null;
-}
-
 function FollowSelection({
   communities,
   selectedCommunityId,
@@ -814,13 +786,8 @@ export function MapCanvas({
   onMapReady,
   onBaseTilesFailed,
   baseTileRetry,
-  soilLayer,
-  selectedSoilKey,
-  showSoilLayer,
 }: MapCanvasProps): React.ReactNode {
-  const { t, language } = useTranslation();
-  const selectedSoilKeyRef = useRef(selectedSoilKey);
-  selectedSoilKeyRef.current = selectedSoilKey;
+  const { t } = useTranslation();
   const reduceMotion = useMemo(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     []
@@ -922,7 +889,6 @@ export function MapCanvas({
         maxZoom={19}
       >
         <ExposeMap onMapReady={onMapReady} />
-        <SoilPane />
         <FollowSelection communities={communities} selectedCommunityId={selectedCommunityId} />
         <MapClickHandler onMapPick={onMapPick} />
         <TileLayer
@@ -977,29 +943,6 @@ export function MapCanvas({
               selectedPoint={userPosition}
             />
           </MapOverlayErrorBoundary>
-        )}
-        {showSoilLayer && soilLayer && (
-          <GeoJSON
-            key={`soil-layer-${language}`}
-            data={soilLayer}
-            pane="soilPane"
-            bubblingMouseEvents={false}
-            style={(feature) => soilPathStyle(feature, selectedSoilKey)}
-            onEachFeature={(feature, layer) => {
-              bindSoilTooltip(feature, layer, language, t);
-              if (!(layer instanceof L.Path)) return;
-              layer.on('mouseover', () => {
-                layer.setStyle({ color: '#ffffff', weight: 4, opacity: 1 });
-              });
-              layer.on('mouseout', () => {
-                layer.setStyle(soilPathStyle(feature, selectedSoilKeyRef.current));
-              });
-              layer.on('click', (event: L.LeafletMouseEvent) => {
-                L.DomEvent.stopPropagation(event.originalEvent);
-                onMapPick({ lat: event.latlng.lat, lon: event.latlng.lng });
-              });
-            }}
-          />
         )}
         {showRisk && (
           <RiskMarkers

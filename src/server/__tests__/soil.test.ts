@@ -10,12 +10,17 @@ describe('LDD soil API', () => {
     ['14.0647', '100.6186', 'Rs', 'ดินเหนียว'],
     ['14.0662', '100.6385', 'Rs', 'ดินเหนียว'],
     ['14.0', '100.5', 'Ay', undefined],
+    ['13.75', '100.5', 'Tb', 'ดินเหนียว'],
+    ['13.819', '100.062', 'Ks', 'ดินร่วนเหนียวปนทรายแป้ง'],
+    ['13.86', '100.5', 'Tb', 'ดินเหนียว'],
+    ['13.59', '100.6', 'Sm', 'ดินเหนียว'],
+    ['13.41', '100.0', 'Sso', 'ดินเหนียวปนทรายแป้ง'],
   ])('looks up soil at (%s, %s)', async (lat, lon, soilCode, textureTh) => {
     const response = await request(app).get(`/api/soil?lat=${lat}&lon=${lon}`);
 
     expect(response.status).toBe(200);
     expect(response.body.source).toBe('LDD 1:25,000');
-    expect(response.body.coverage).toBe('pathum-thani');
+    expect(response.body.coverage).toBe('bangkok-region');
     expect(response.body.soil.soilCode).toBe(soilCode);
     expect(response.body.soil.drainageClass).toBeNull();
     if (textureTh) {
@@ -23,7 +28,7 @@ describe('LDD soil API', () => {
     }
   });
 
-  it('returns null outside Pathum Thani coverage', async () => {
+  it('returns null outside the dataset coverage', async () => {
     const response = await request(app).get('/api/soil?lat=18.79&lon=98.98');
 
     expect(response.status).toBe(200);
@@ -47,7 +52,7 @@ describe('LDD soil API', () => {
     expect(response.status).toBe(200);
     expect(response.headers['cache-control']).toBe('public, max-age=86400');
     expect(response.body.type).toBe('FeatureCollection');
-    expect(response.body.features).toHaveLength(35);
+    expect(response.body.features).toHaveLength(181);
     expect(response.body.features.find((feature: { properties: { soilCode: string } }) =>
       feature.properties.soilCode === 'W'
     )?.properties).toMatchObject({

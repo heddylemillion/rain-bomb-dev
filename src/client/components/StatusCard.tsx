@@ -32,9 +32,6 @@ interface StatusCardProps {
   soilLoading: boolean;
   soilError: boolean;
   retrySoil: () => void;
-  soilLayerLoading: boolean;
-  soilLayerError: boolean;
-  retrySoilLayer: () => void;
 }
 
 const FACTOR_NAME_KEYS: Record<RiskResult['factors'][number]['id'], MessageKey> = {
@@ -210,9 +207,6 @@ export function StatusCard({
   soilLoading,
   soilError,
   retrySoil,
-  soilLayerLoading,
-  soilLayerError,
-  retrySoilLayer,
 }: StatusCardProps): React.ReactNode {
   const { t, language } = useTranslation();
   const [collapsed, setCollapsed] = useState<boolean>(() =>
@@ -545,7 +539,6 @@ export function StatusCard({
             </summary>
               <div className="pb-2.5 pt-1 flex flex-col gap-1.5 text-[0.7rem] text-slate-200 border-t border-white/10">
                 {soilLoading && <p>{t('soilLoading')}</p>}
-                {soilLayerLoading && <p>{t('soilLayerLoading')}</p>}
                 {soilError && (
                   <div role="alert" className="flex flex-col gap-1.5">
                     <p>{t('soilLoadError')}</p>
@@ -553,18 +546,6 @@ export function StatusCard({
                       type="button"
                       className="glass-control-btn min-h-[44px] rounded-xl px-3 text-xs font-semibold"
                       onClick={retrySoil}
-                    >
-                      {t('retry')}
-                    </button>
-                  </div>
-                )}
-                {soilLayerError && (
-                  <div role="alert" className="flex flex-col gap-1.5">
-                    <p>{t('soilLayerLoadError')}</p>
-                    <button
-                      type="button"
-                      className="glass-control-btn min-h-[44px] rounded-xl px-3 text-xs font-semibold"
-                      onClick={retrySoilLayer}
                     >
                       {t('retry')}
                     </button>

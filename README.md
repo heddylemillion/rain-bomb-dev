@@ -120,17 +120,19 @@ subtracted from elevation and is not an input to the risk score. The
 `tideFactor` remains at weight 0 until validated against observed data. Marine
 refreshes are paused while the browser tab is hidden.
 
-The Soil type layer uses Land Development Department (LDD) soil-series data for
-Pathum Thani and is off by default. Toggle **Soil type** in the map layer panel;
-hover a polygon for its soil-series label and click it to select the location.
-The selected polygon is highlighted with a white outline.
-`GET /api/soil?lat=...&lon=...` returns the selected point's soil details, and
-`GET /api/soil/layer` returns the GeoJSON layer. This mapping is
-district-by-soil-series scale, not a point- or street-level survey, and is
-displayed for context only; it is not used by the risk score. Drainage data has
-not been verified, so `drainageClass` intentionally remains `null` and is
-displayed as no data. Confirm the LDD dataset's rights and terms for public
-redistribution before publishing the repository or data publicly.
+Soil type lookup uses Land Development Department (LDD) soil-series data at
+1:25,000 scale for Bangkok, Nakhon Pathom, Nonthaburi, Pathum Thani, Samut
+Prakan, and Samut Songkhram. Toggle **Soil type** in the map layer panel and
+click a location to show its soil details; soil polygons are not drawn on the
+map. `GET /api/soil?lat=...&lon=...` returns the selected point's soil details,
+and `GET /api/soil/layer` remains available for clients that need the GeoJSON
+data. The supplied archive contains Samut Songkhram, not Samut Sakhon, so
+Samut Sakhon is not included. This mapping is district-by-soil-series scale,
+not a point- or street-level survey, and is displayed for context only; it is
+not used by the risk score. Drainage data has not been verified, so
+`drainageClass` intentionally remains `null` and is displayed as no data.
+Confirm the LDD dataset's rights and terms for public redistribution before
+publishing the repository or data publicly.
 
 The backend's existing shared API limiter allows 120 `/api` requests per
 15-minute window. Open-Meteo publishes free-tier limits of 600 requests/minute,

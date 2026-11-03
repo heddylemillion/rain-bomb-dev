@@ -11,7 +11,7 @@ import {
 } from '../../shared/contracts.js';
 import { ROOT_DIR } from '../config.js';
 
-const SOIL_DATA_PATH = path.join(ROOT_DIR, 'data', 'soil-pathumthani.geojson');
+const SOIL_DATA_PATH = path.join(ROOT_DIR, 'data', 'soil-bangkok-region.geojson');
 const SOIL_DRAINAGE_PATH = path.join(ROOT_DIR, 'config', 'soil-drainage.json');
 
 const SoilAttributesSchema = SoilInfoSchema.omit({ drainageClass: true });

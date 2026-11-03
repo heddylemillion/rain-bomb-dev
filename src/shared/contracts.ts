@@ -13,7 +13,7 @@ export type Community = z.infer<typeof CommunitySchema>;
 const LddSoilAttributesSchema = z.object({
   soilCode: z.string().min(1),
   soilNameTh: z.string().min(1),
-  soilGroup: z.enum(['2', '3', '8', '10', '11', '33', 'W']),
+  soilGroup: z.string().min(1),
   textureTh: z.string(),
   phTopTh: z.string(),
   fertilityTh: z.string(),
@@ -48,7 +48,7 @@ export type SoilFeatureCollection = z.infer<typeof SoilFeatureCollectionSchema>;
 export const SoilResponseSchema = z.object({
   soil: SoilInfoSchema.nullable(),
   source: z.literal('LDD 1:25,000'),
-  coverage: z.literal('pathum-thani'),
+  coverage: z.literal('bangkok-region'),
 });
 export type SoilResponse = z.infer<typeof SoilResponseSchema>;
 

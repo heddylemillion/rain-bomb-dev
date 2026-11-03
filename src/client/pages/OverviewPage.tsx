@@ -18,7 +18,7 @@ import {
   type SoilResponse,
 } from '../../shared/contracts.js';
 import { fetchCapabilities } from '../api/capabilities.js';
-import { fetchSoil, fetchSoilLayer, roundSoilCoordinates } from '../api/soil.js';
+import { fetchSoil, roundSoilCoordinates } from '../api/soil.js';
 import {
   fetchAreaEnvironment,
   fetchCommunities,
@@ -32,7 +32,6 @@ import { MapControls, RadarSlider } from '../components/MapOverlays.js';
 import { SideBar, type SideLayerId, type SideLayerItem } from '../components/SideBar.js';
 import { StatusCard } from '../components/StatusCard.js';
 import { useTranslation } from '../i18n.js';
-import { soilFeatureKey } from '../lib/soilStyle.js';
 import { writeStorage } from '../lib/storage.js';
 
 const LOCATION_CHOICE_KEY = 'rain-burst-location-choice';
@@ -248,14 +247,6 @@ export function OverviewPage({
     staleTime: 24 * 60 * 60 * 1000,
     retry: 1,
   });
-  const soilLayerQuery = useQuery({
-    queryKey: ['soil-layer'],
-    queryFn: ({ signal }) => fetchSoilLayer(signal),
-    enabled: activeOverlays.has('soil'),
-    staleTime: 24 * 60 * 60 * 1000,
-    retry: 1,
-  });
-
   const capabilities = capabilityQuery.data?.capabilities;
   const getCapability = useCallback(
     (id: CapabilityId) => capabilities?.find((capability) => capability.id === id),
@@ -483,11 +474,6 @@ export function OverviewPage({
       retrySoil={() => {
         void soilQuery.refetch();
       }}
-      soilLayerLoading={soilLayerQuery.isPending}
-      soilLayerError={soilLayerQuery.isError}
-      retrySoilLayer={() => {
-        void soilLayerQuery.refetch();
-      }}
     />
   );
 
@@ -503,9 +489,6 @@ export function OverviewPage({
         onSelectCommunity={() => undefined}
         onMapPick={handleMapPick}
         overlays={effectiveOverlays}
-        soilLayer={soilLayerQuery.data ?? null}
-        selectedSoilKey={soilQuery.data?.soil ? soilFeatureKey(soilQuery.data.soil) : null}
-        showSoilLayer={activeOverlays.has('soil')}
         radarHours={radarHours}
         mockMode={mockMode}
         scenarioName={scenarioName}
