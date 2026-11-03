@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Droplets, Loader2, LocateFixed, Search } from 'lucide-react';
+import { Loader2, LocateFixed, Search } from 'lucide-react';
 import type { Community, GeocodingResult } from '../../shared/contracts.js';
+import rainbombLogo from '../assets/rainbomb-logo.png';
 import { searchPlaces } from '../api/weather.js';
 import { useTranslation } from '../i18n.js';
 import { readStorage, writeStorage } from '../lib/storage.js';
@@ -149,7 +150,12 @@ export function LocationSearch({
         className="glass-panel min-h-[44px] px-2.5 sm:px-3 rounded-2xl inline-flex items-center gap-1.5 shrink-0 select-none"
         aria-label={`${t('brandTitle')} — ${t('brandSubtitle')}`}
       >
-        <Droplets className="w-4 h-4 text-sky-400 shrink-0" aria-hidden="true" />
+        <img
+          className="w-7 h-7 object-contain shrink-0"
+          src={rainbombLogo}
+          alt=""
+          aria-hidden="true"
+        />
         <strong className="text-xs sm:text-sm font-bold tracking-tight text-slate-50 whitespace-nowrap">
           {t('brandTitle')}
         </strong>
