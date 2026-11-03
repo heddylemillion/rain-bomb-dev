@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "emergencyContacts": [],
+  "items": [
+    {
+      "id": "K1",
+      "topic": "emergency-kit",
+      "title_th": "ชุดของใช้ฉุกเฉิน",
+      "body_th": "• เตรียมน้ำดื่ม อาหารที่เก็บได้นาน ยาประจำตัว ไฟฉาย และอุปกรณ์สื่อสารไว้ในที่หยิบง่าย\n• ตรวจของจำเป็นให้พร้อมและให้สมาชิกในบ้านรู้ว่าเก็บไว้ที่ใด",
+      "tags": ["เตรียมของ", "ชุดฉุกเฉิน", "ไฟฉาย", "ยา", "น้ำดื่ม"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    },
+    {
+      "id": "K2",
+      "topic": "documents-medicines",
+      "title_th": "เอกสารและยา",
+      "body_th": "• เก็บเอกสารสำคัญและยาประจำตัวในภาชนะที่ป้องกันน้ำ\n• เตรียมรายการยาที่จำเป็นและช่องทางติดต่อผู้ดูแล",
+      "tags": ["เอกสาร", "ยา", "ยาประจำตัว"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    },
+    {
+      "id": "K3",
+      "topic": "electrical-safety",
+      "title_th": "ความปลอดภัยทางไฟฟ้า",
+      "body_th": "• หากน้ำเริ่มเข้าบ้าน ให้อยู่ห่างจากเครื่องใช้ไฟฟ้าและปลั๊กที่เปียก\n• อย่าสัมผัสอุปกรณ์ไฟฟ้าขณะยืนอยู่ในน้ำ และขอความช่วยเหลือจากผู้มีความรู้",
+      "tags": ["ไฟฟ้า", "ไฟดูด", "น้ำเข้าบ้าน", "ปลั๊ก"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    },
+    {
+      "id": "K4",
+      "topic": "avoid-floodwater",
+      "title_th": "หลีกเลี่ยงน้ำท่วม",
+      "body_th": "• หลีกเลี่ยงการเดินหรือขับรถผ่านน้ำท่วมขังและทางน้ำไหล\n• อย่าลงไปตรวจระดับน้ำด้วยตนเอง",
+      "tags": ["น้ำท่วม", "ถนน", "คลอง", "เดินทาง", "น้ำไหล"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    },
+    {
+      "id": "K5",
+      "topic": "move-belongings",
+      "title_th": "ดูแลสิ่งของ",
+      "body_th": "• หากมีเวลาและทำได้อย่างปลอดภัย ให้ย้ายของสำคัญออกจากบริเวณที่อาจเปียกน้ำ\n• อย่าเสี่ยงเข้าไปในพื้นที่น้ำท่วมเพื่อเก็บสิ่งของ",
+      "tags": ["ยกของ", "ย้ายของ", "ทรัพย์สิน", "น้ำท่วม"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    },
+    {
+      "id": "K6",
+      "topic": "family-plan",
+      "title_th": "แผนครอบครัวและเพื่อนบ้าน",
+      "body_th": "• ตกลงจุดนัดพบและวิธีติดต่อกันหากแยกจากกัน\n• แจ้งแผนให้สมาชิกในบ้านและเพื่อนบ้านที่ไว้ใจทราบ",
+      "tags": ["ครอบครัว", "เพื่อนบ้าน", "แผน", "ติดต่อ", "นัดพบ"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    },
+    {
+      "id": "K7",
+      "topic": "extra-help",
+      "title_th": "ผู้ที่ต้องการความช่วยเหลือเพิ่มเติม",
+      "body_th": "• วางแผนช่วยเหลือผู้สูงอายุ เด็ก ผู้พิการ ผู้ตั้งครรภ์ และผู้ที่มีข้อจำกัดด้านการเคลื่อนไหว\n• ตรวจสอบว่าผู้ดูแลและเพื่อนบ้านรู้วิธีติดต่อกัน",
+      "tags": ["ผู้สูงอายุ", "เด็ก", "ผู้พิการ", "ตั้งครรภ์", "ผู้ดูแล"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    },
+    {
+      "id": "K8",
+      "topic": "pets",
+      "title_th": "การดูแลสัตว์เลี้ยง",
+      "body_th": "• วางแผนพาสัตว์เลี้ยงไปยังจุดที่ปลอดภัยและเตรียมอาหารกับน้ำไว้ให้\n• เตรียมสายจูงหรือกรงที่เหมาะกับสัตว์เลี้ยง",
+      "tags": ["สัตว์เลี้ยง", "สุนัข", "แมว", "อาหาร", "น้ำ"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    },
+    {
+      "id": "K9",
+      "topic": "after-flood",
+      "title_th": "หลังน้ำลด",
+      "body_th": "• ระวังสิ่งปนเปื้อนและความเสียหายที่อาจมองไม่เห็นหลังน้ำลด\n• ตรวจสอบความปลอดภัยของอาหารและน้ำก่อนนำมาใช้",
+      "tags": ["หลังน้ำลด", "ทำความสะอาด", "อาหาร", "น้ำดื่ม"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    },
+    {
+      "id": "K10",
+      "topic": "lightning-safety",
+      "title_th": "ความปลอดภัยเมื่อมีฟ้าผ่า",
+      "body_th": "• เมื่อมีพายุฝนฟ้าคะนอง ให้หลบในอาคารที่มั่นคงและอยู่ห่างจากที่โล่ง\n• หลีกเลี่ยงการอยู่ใกล้ต้นไม้เดี่ยวหรือสัมผัสอุปกรณ์ไฟฟ้าภายนอก",
+      "tags": ["ฟ้าผ่า", "พายุฝนฟ้าคะนอง", "หลบภัย"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    },
+    {
+      "id": "K11",
+      "topic": "risk-levels",
+      "title_th": "ความหมายของระดับความเสี่ยง",
+      "body_th": "• ระดับความเสี่ยงเป็นผลประเมินจากข้อมูลที่มี ไม่ใช่การยืนยันว่าจะเกิดเหตุ\n• ข้อมูลที่ไม่ครบอาจทำให้ประเมินได้ไม่ชัดเจน ควรติดตามประกาศจากหน่วยงานทางการ",
+      "tags": ["ความเสี่ยง", "ระดับ", "ข้อมูลไม่พอ", "ประกาศทางการ"],
+      "status": "draft",
+      "version": 1,
+      "reviewedBy": "",
+      "reviewedAt": "",
+      "notes": "needs review by Community Engagement + Hydrology; test with elderly readers"
+    }
+  ]
+}

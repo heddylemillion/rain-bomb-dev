@@ -2,11 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import type L from 'leaflet';
-import {
-  DEFAULT_CONE_KM_PER_30MIN,
-  DEFAULT_DEMO_POINT,
-  type MockScenarioName,
-} from '../../shared/mockWeatherScenario.js';
+import { DEFAULT_INITIAL_POINT } from '../../shared/geo.js';
 import {
   OVERLAY_LAYER_IDS,
   type Community,
@@ -29,6 +25,7 @@ import { MapCanvas, type UserPosition } from '../components/MapCanvas.js';
 import { MapControls, RadarSlider } from '../components/MapOverlays.js';
 import { SideBar, type SideLayerId, type SideLayerItem } from '../components/SideBar.js';
 import { StatusCard } from '../components/StatusCard.js';
+import { ChatDrawer } from '../components/ChatDrawer.js';
 import { useTranslation } from '../i18n.js';
 import { soilFeatureKey } from '../lib/soilStyle.js';
 import { writeStorage } from '../lib/storage.js';
@@ -47,15 +44,15 @@ interface SelectedPlace {
 }
 
 export interface RuntimeConfigData {
-  dataMode: 'live' | 'mock' | 'cache';
+  dataMode: 'live' | 'cache';
   stormConeKmPer30Min: number;
-  radarProvider: { id: 'rainviewer' | 'tmd' | 'mock'; mode: 'live' | 'mock' | 'cache' };
+  radarProvider: { id: 'rainviewer' | 'tmd'; mode: 'live' | 'cache' };
   lightningProvider: {
-    id: 'none' | 'mock';
-    mode: 'live' | 'mock' | 'cache';
+    id: 'none';
+    mode: 'live' | 'cache';
     display: 'counts-only';
   };
-  stormTrackProvider: { id: 'gdacs' | 'mock'; mode: 'live' | 'mock' | 'cache' };
+  stormTrackProvider: { id: 'gdacs'; mode: 'live' | 'cache' };
 }
 
 function isInThailand(lat: number, lon: number): boolean {
@@ -78,8 +75,8 @@ function initialPlace(params: URLSearchParams, defaultName: string): SelectedPla
     }
   }
   return {
-    lat: DEFAULT_DEMO_POINT.lat,
-    lon: DEFAULT_DEMO_POINT.lon,
+    lat: DEFAULT_INITIAL_POINT.lat,
+    lon: DEFAULT_INITIAL_POINT.lon,
     name: defaultName,
   };
 }
@@ -141,26 +138,21 @@ export function OverviewPage({
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [place, setPlace] = useState<SelectedPlace>(() =>
-    initialPlace(searchParams, t('defaultDemoAreaName'))
+    initialPlace(searchParams, t('defaultAreaName'))
   );
   const [isMobile, setIsMobile] = useState<boolean>(() =>
     typeof window !== 'undefined' ? !window.matchMedia('(min-width: 768px)').matches : false
   );
   const [tabVisible, setTabVisible] = useState(() => document.visibilityState === 'visible');
   const [activeOverlays, setActiveOverlays] = useState<ReadonlySet<SideLayerId>>(
-    () => new Set<SideLayerId>(['radar', 'lightning', 'storm'])
+    () => new Set<SideLayerId>(['radar', 'storm'])
   );
-  const [timelineMinutes, setTimelineMinutes] = useState(0);
   const [selectedRadarFrameTime, setSelectedRadarFrameTime] = useState<number | null>(null);
   const [radarOpacity, setRadarOpacity] = useState(0.7);
-  const scenarioName: MockScenarioName =
-    (['calm', 'moderate', 'burst'] as const).find(
-      (name) => name === searchParams.get('scenario')
-    ) ?? 'moderate';
-  const scenarioDate = new Date().toISOString().slice(0, 10);
   const [baseTilesFailed, setBaseTilesFailed] = useState(false);
   const [baseTilesFallback, setBaseTilesFallback] = useState(false);
   const [baseTileRetry, setBaseTileRetry] = useState(0);
+  const [chatOpen, setChatOpen] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
   const [focusSearchRequest, setFocusSearchRequest] = useState(0);
@@ -210,21 +202,21 @@ export function OverviewPage({
     }
   }, [place.lat, place.lon, place.name, searchParams]);
 
-  const dataMode = runtimeConfig?.dataMode ?? 'mock';
-  const mockMode = dataMode === 'mock';
+  const dataMode = runtimeConfig?.dataMode ?? 'live';
 
   const radarFramesQuery = useQuery<RadarFramesResponse>({
-    queryKey: ['radar-frames', runtimeConfig?.radarProvider.id, place.lat, place.lon],
+    queryKey: ['radar-frames', runtimeConfig?.radarProvider.id, place.lat.toFixed(2), place.lon.toFixed(2)],
     queryFn: ({ signal }) => fetchRadarFrames(place.lat, place.lon, signal),
-    enabled: !mockMode && runtimeConfig !== undefined && runtimeConfig.radarProvider.mode !== 'mock',
+    enabled: runtimeConfig !== undefined,
     staleTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,
   });
   const lightningSummaryQuery = useQuery<LightningSummary>({
-    queryKey: ['lightning-summary', place.lat, place.lon],
+    queryKey: ['lightning-summary', place.lat.toFixed(2), place.lon.toFixed(2)],
     queryFn: ({ signal }) => fetchLightningSummary(place.lat, place.lon, signal),
-    enabled: !mockMode &&
-      runtimeConfig?.lightningProvider.mode === 'live' &&
+    enabled:
+      runtimeConfig !== undefined &&
+      runtimeConfig.lightningProvider.id !== 'none' &&
       runtimeConfig.lightningProvider.display === 'counts-only' &&
       activeOverlays.has('lightning'),
     staleTime: 2 * 60 * 1000,
@@ -233,8 +225,8 @@ export function OverviewPage({
   const stormTracksQuery = useQuery<StormTrackFeatureCollection>({
     queryKey: ['storm-tracks', runtimeConfig?.stormTrackProvider.id],
     queryFn: ({ signal }) => fetchStormTracks(signal),
-    enabled: !mockMode &&
-      runtimeConfig?.stormTrackProvider.mode === 'live' &&
+    enabled:
+      runtimeConfig !== undefined &&
       runtimeConfig.stormTrackProvider.id === 'gdacs' &&
       activeOverlays.has('storm'),
     staleTime: 30 * 60 * 1000,
@@ -250,15 +242,9 @@ export function OverviewPage({
     queryFn: ({ signal }) => fetchCommunities(signal),
   });
 
-  // Area risk is always evaluated at "now" (offsetMin = 0) so timeline scrubbing does not misreport current risk.
   const pointRiskQuery = useQuery({
-    queryKey: ['point-risk', place.lat.toFixed(4), place.lon.toFixed(4), scenarioName, scenarioDate],
-    queryFn: ({ signal }) =>
-      fetchPointRisk(place.lat, place.lon, signal, {
-        scenario: scenarioName,
-        date: scenarioDate,
-        offsetMin: 0,
-      }),
+    queryKey: ['point-risk', place.lat.toFixed(4), place.lon.toFixed(4)],
+    queryFn: ({ signal }) => fetchPointRisk(place.lat, place.lon, signal),
     retry: 1,
     refetchInterval: 5 * 60 * 1000,
     refetchIntervalInBackground: false,
@@ -309,15 +295,12 @@ export function OverviewPage({
           : id === 'lightning'
             ? t('topicLightningDesc')
             : t('topicStormDesc');
-      const state: SideLayerItem['state'] = activeOverlays.has(id)
-          ? 'on'
-          : 'off';
+      const state: SideLayerItem['state'] = activeOverlays.has(id) ? 'on' : 'off';
       return {
         id,
         label,
         description,
         state,
-        mock: mockMode,
       };
     }),
     {
@@ -477,12 +460,7 @@ export function OverviewPage({
     }
   }, [location.search, menuOpen, navigate]);
 
-  const dataModeLabel =
-    dataMode === 'mock'
-      ? t('dataModeMock')
-      : dataMode === 'cache'
-        ? t('dataModeCache')
-        : t('dataModeLive');
+  const dataModeLabel = dataMode === 'cache' ? t('dataModeCache') : t('dataModeLive');
 
   const statusCardElement = (
     <StatusCard
@@ -516,6 +494,9 @@ export function OverviewPage({
     />
   );
 
+  const showLightningUnconfigured =
+    activeOverlays.has('lightning') && runtimeConfig?.lightningProvider.id === 'none';
+
   return (
     <div className="relative w-screen h-[100dvh] overflow-hidden select-none sm:select-auto bg-slate-950">
       <h1 className="sr-only">{t('mapRegionLabel')}</h1>
@@ -537,12 +518,7 @@ export function OverviewPage({
         lightningSummary={lightningSummaryQuery.data ?? null}
         stormTracks={stormTracksQuery.data ?? null}
         stormTrackProviderId={runtimeConfig?.stormTrackProvider.id ?? 'gdacs'}
-        mockMode={mockMode}
-        scenarioName={scenarioName}
-        scenarioDate={scenarioDate}
-        simulationOffsetMin={timelineMinutes}
         radarOpacity={radarOpacity}
-        stormConeKmPer30Min={runtimeConfig?.stormConeKmPer30Min ?? DEFAULT_CONE_KM_PER_30MIN}
         userPosition={place}
         onMapReady={(map) => {
           mapRef.current = map;
@@ -572,7 +548,7 @@ export function OverviewPage({
               data-testid="data-mode-pill"
               className="glass-panel min-h-[36px] px-3.5 py-1 rounded-full inline-flex items-center gap-2 text-xs font-semibold text-slate-50 pointer-events-auto lg:justify-self-center shrink-0"
             >
-              <span className="w-2 h-2 rounded-full bg-sky-400 shrink-0" aria-hidden="true" />
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" aria-hidden="true" />
               <span>{dataModeLabel}</span>
             </div>
           )}
@@ -590,7 +566,7 @@ export function OverviewPage({
               data-testid="data-mode-pill"
               className="glass-panel px-3 py-0.5 rounded-full inline-flex items-center gap-1.5 text-[0.68rem] font-semibold text-slate-50 pointer-events-auto"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" aria-hidden="true" />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" aria-hidden="true" />
               <span>{dataModeLabel}</span>
             </div>
           </div>
@@ -602,22 +578,23 @@ export function OverviewPage({
         <SideBar
           layers={sideLayers}
           onToggleLayer={toggleOverlay}
-          mockMode={mockMode}
-          scenario={scenarioName}
-          onScenarioChange={(name) =>
-            setSearchParams((current) => {
-              const next = new URLSearchParams(current);
-              next.set('scenario', name);
-              return next;
-            })
-          }
           radarOpacity={radarOpacity}
           onRadarOpacityChange={setRadarOpacity}
           menuOpen={menuOpen}
           onOpenMenu={handleToggleMenu}
+          onOpenChat={() => setChatOpen(true)}
+          chatOpen={chatOpen}
         />
         {!isMobile && statusCardElement}
       </div>
+
+      <ChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        area={place}
+        dataMode={dataMode}
+        riskLevel={pointRiskQuery.data?.level ?? 'INSUFFICIENT'}
+      />
 
       {/* Right-middle Zoom +/- & Locate group */}
       <div className="absolute right-2 md:right-3 top-[204px] md:top-1/2 md:-translate-y-1/2 z-20 pointer-events-none">
@@ -634,11 +611,11 @@ export function OverviewPage({
         <div className="flex flex-col items-center gap-1.5">
           {(baseTilesFailed ||
             pointRiskQuery.isError ||
-            radarFramesQuery.isError ||
-            radarFramesQuery.data?.coverage === 'none' ||
+            (activeOverlays.has('radar') && radarFramesQuery.isError) ||
+            (activeOverlays.has('radar') && radarFramesQuery.data?.coverage === 'none') ||
             lightningSummaryQuery.isError ||
-            (runtimeConfig?.lightningProvider.id === 'none' && dataMode === 'live') ||
-            stormTracksQuery.isError ||
+            showLightningUnconfigured ||
+            (activeOverlays.has('storm') && stormTracksQuery.isError) ||
             Boolean(locationMessage)) && (
             <div className="flex flex-col items-center gap-1 max-w-[min(560px,calc(100vw-16px))] pointer-events-auto">
               {baseTilesFailed && (
@@ -683,12 +660,12 @@ export function OverviewPage({
                   {t('pointRiskFailed')}
                 </p>
               )}
-              {radarFramesQuery.data?.coverage === 'none' && (
+              {activeOverlays.has('radar') && radarFramesQuery.data?.coverage === 'none' && (
                 <p className="glass-panel rounded-xl px-3 py-1 text-xs text-slate-100" role="status">
                   ไม่มีข้อมูลเรดาร์ในพื้นที่นี้
                 </p>
               )}
-              {radarFramesQuery.isError && (
+              {activeOverlays.has('radar') && radarFramesQuery.isError && (
                 <p className="glass-panel rounded-xl px-3 py-1 text-xs text-slate-100" role="status">
                   โหลดข้อมูลเรดาร์ไม่สำเร็จ
                 </p>
@@ -698,12 +675,12 @@ export function OverviewPage({
                   ข้อมูลฟ้าผ่าไม่พร้อมใช้งาน
                 </p>
               )}
-              {runtimeConfig?.lightningProvider.id === 'none' && dataMode === 'live' && (
+              {showLightningUnconfigured && (
                 <p className="glass-panel rounded-xl px-3 py-1 text-xs text-slate-100" role="status">
                   ไม่มีผู้ให้บริการฟ้าผ่า
                 </p>
               )}
-              {stormTracksQuery.isError && (
+              {activeOverlays.has('storm') && stormTracksQuery.isError && (
                 <p className="glass-panel rounded-xl px-3 py-1 text-xs text-slate-100" role="status">
                   ข้อมูลเส้นทางพายุไม่พร้อมใช้งาน
                 </p>
@@ -718,9 +695,6 @@ export function OverviewPage({
           )}
 
           <RadarSlider
-            mockMode={mockMode}
-            minutes={timelineMinutes}
-            onMinutesChange={setTimelineMinutes}
             frames={radarFrames}
             selectedFrameTime={radarFrameTime}
             onFrameTimeChange={setSelectedRadarFrameTime}
@@ -784,9 +758,26 @@ export function OverviewPage({
             >
               Open-Meteo
             </a>
+            {' · '}
+            <a
+              className="underline hover:text-sky-300"
+              href="https://www.dwd.de/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              DWD
+            </a>
+            {' · '}
+            <a
+              className="underline hover:text-sky-300"
+              href="https://www.copernicus.eu/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Copernicus
+            </a>
             {effectiveOverlays.has('radar') &&
-              runtimeConfig?.radarProvider.id === 'rainviewer' &&
-              runtimeConfig.radarProvider.mode !== 'mock' && (
+              runtimeConfig?.radarProvider.id === 'rainviewer' && (
                 <>
                   {' · '}
                   <a
@@ -800,8 +791,7 @@ export function OverviewPage({
                 </>
               )}
             {effectiveOverlays.has('storm') &&
-              runtimeConfig?.stormTrackProvider.id === 'gdacs' &&
-              runtimeConfig.stormTrackProvider.mode !== 'mock' && (
+              runtimeConfig?.stormTrackProvider.id === 'gdacs' && (
                 <>
                   {' · '}
                   <a

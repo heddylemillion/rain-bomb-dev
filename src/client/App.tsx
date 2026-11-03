@@ -2,6 +2,11 @@ import { lazy, Suspense } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell.js';
 
+const ForecastPage = lazy(() =>
+  import('./pages/ForecastPage.js').then((module) => ({
+    default: module.ForecastPage,
+  }))
+);
 const ModulePlaceholderPage = lazy(() =>
   import('./pages/ModulePlaceholderPage.js').then((module) => ({
     default: module.ModulePlaceholderPage,
@@ -32,7 +37,7 @@ export function App(): React.ReactNode {
       <Routes>
         <Route element={<AppShell />}>
           <Route index element={null} />
-          <Route path="forecast" element={<ModulePlaceholderPage />} />
+          <Route path="forecast" element={<ForecastPage />} />
           <Route path="alerts" element={<ModulePlaceholderPage />} />
           <Route path="history" element={<ModulePlaceholderPage />} />
           <Route path="more" element={<MorePage />} />

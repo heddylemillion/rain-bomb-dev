@@ -2,12 +2,14 @@ import {
   CommunitySchema,
   AreaEnvironmentSchema,
   GeocodingResultSchema,
+  HourlyForecastResponseSchema,
   PointRiskResponseSchema,
 } from '../../shared/contracts.js';
 import type {
   AreaEnvironment,
   Community,
   GeocodingResult,
+  HourlyForecastResponse,
   PointRiskResponse,
 } from '../../shared/contracts.js';
 import { z } from 'zod';
@@ -49,15 +51,21 @@ export async function reverseGeocode(
 export async function fetchPointRisk(
   lat: number,
   lon: number,
-  signal: AbortSignal,
-  options: { scenario?: 'calm' | 'moderate' | 'burst'; date?: string; offsetMin?: number } = {}
+  signal: AbortSignal
 ): Promise<PointRiskResponse> {
   const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
-  if (options.scenario) params.set('scenario', options.scenario);
-  if (options.date) params.set('date', options.date);
-  if (options.offsetMin !== undefined) params.set('offsetMin', String(options.offsetMin));
   const payload = await getJson(`/api/risk?${params}`, signal);
   return PointRiskResponseSchema.parse(payload);
+}
+
+export async function fetchHourlyForecast(
+  lat: number,
+  lon: number,
+  signal: AbortSignal
+): Promise<HourlyForecastResponse> {
+  const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+  const payload = await getJson(`/api/forecast?${params}`, signal);
+  return HourlyForecastResponseSchema.parse(payload);
 }
 
 export async function fetchAreaEnvironment(

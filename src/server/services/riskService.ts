@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { ROOT_DIR } from '../config.js';
 import type { RiskDataReason, RiskFactorId, RiskResult } from '../../shared/contracts.js';
 
-export { haversineDistanceKm } from '../../shared/mockWeatherScenario.js';
+export { haversineDistanceKm } from '../../shared/geo.js';
 
 const RiskConfigSchema = z.object({
   calibrationStatus: z.literal('TO BE CALIBRATED'),
@@ -49,7 +49,6 @@ export interface CalculateRiskOptions {
   lightningWithin5km15minCount?: number | null;
   severeAlert?: 'moderate' | 'severe' | 'extreme' | null;
   fetchedAt?: string | null;
-  isMock?: boolean;
   lightningSummary?: { count30min: number | null; nearestStrikeKm: number | null };
 }
 
@@ -221,6 +220,5 @@ export function calculateRisk(options: CalculateRiskOptions): RiskResult {
     fetchedAt: options.fetchedAt ?? null,
     noticeTh: `คำนวณจากข้อมูลจริง ยังไม่ได้สอบเทียบกับเหตุการณ์น้ำท่วมในไทย${missingSiteFactors ? ' · ยังไม่มีข้อมูลระดับพื้นที่ ความสูง ดิน การระบายน้ำ และคลอง' : ''}${hasLightningFloor ? ' · มีฟ้าผ่าใกล้พื้นที่ในช่วง 15 นาที' : ''}`,
     recommendationTh,
-    isMock: options.isMock ?? false,
   };
 }

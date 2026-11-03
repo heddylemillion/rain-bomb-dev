@@ -12,18 +12,14 @@ import type {
   RadarProvider,
   StormTrackProvider,
 } from '../services/weatherProviders.js';
+import { ChatRequestSchema, ChatService } from '../services/chatService.js';
+import { HourlyForecastResponseSchema } from '../../shared/contracts.js';
 import { ProviderStatusResponseSchema } from '../../shared/providerContracts.js';
-import type { MockScenarioName } from '../../shared/mockWeatherScenario.js';
 
 const CommunityIdParamSchema = z.string().min(1).max(80).regex(/^[a-z0-9-]+$/i);
 export const PointQuerySchema = z.object({
   lat: z.coerce.number().finite().min(5.5).max(20.5),
   lon: z.coerce.number().finite().min(97).max(106),
-});
-const RiskQuerySchema = PointQuerySchema.extend({
-  scenario: z.enum(['calm', 'moderate', 'burst']).optional(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  offsetMin: z.coerce.number().int().min(-180).max(180).multipleOf(10).optional(),
 });
 export const GeocodeQuerySchema = z.object({
   q: z.string().trim().min(3).max(120),
@@ -44,6 +40,7 @@ export interface ApiRouterDeps {
   radarProvider: RadarProvider;
   lightningProvider: LightningProvider;
   stormTrackProvider: StormTrackProvider;
+  chatService: ChatService;
 }
 
 export function createApiRouter(deps: ApiRouterDeps): Router {
@@ -86,6 +83,32 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     });
   });
 
+  router.post('/chat', async (req: Request, res: Response) => {
+    const parsed = ChatRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: {
+          code: 'INVALID_CHAT_REQUEST',
+          messageTh: 'ข้อมูลคำถามไม่ถูกต้อง กรุณาตรวจพื้นที่และข้อความแล้วลองใหม่',
+        },
+      });
+      return;
+    }
+    try {
+      const answer = await deps.chatService.respond(parsed.data);
+      res.status(200).set('Cache-Control', 'no-store').json(answer);
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.error({ error: message }, 'Failed to build a chat response');
+      res.status(503).json({
+        error: {
+          code: 'CHAT_UNAVAILABLE',
+          messageTh: 'ขณะนี้ผู้ช่วยตอบคำถามไม่ได้ กรุณาลองอีกครั้ง',
+        },
+      });
+    }
+  });
+
   router.get('/providers/status', (_req: Request, res: Response) => {
     res.status(200).json(ProviderStatusResponseSchema.parse({
       providers: [
@@ -101,9 +124,7 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
           attributionUrl: deps.radarProvider.attributionUrl,
           licenceLimits: deps.radarProvider.id === 'rainviewer'
             ? 'Personal/community use only; historical frames, max zoom 7, no nowcast or satellite.'
-            : deps.radarProvider.id === 'tmd'
-              ? 'Feed and redistribution terms pending written TMD approval.'
-              : 'Synthetic demonstration only; not observed radar data.',
+            : 'Feed and redistribution terms pending written TMD approval.',
         },
         {
           id: 'lightning',
@@ -270,32 +291,6 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       res.status(400).json({ error: { code: 'INVALID_QUERY', messageTh: 'กรุณาค้นหาด้วยคำอย่างน้อย 3 ตัวอักษร' } });
       return;
     }
-    if (deps.dataMode === 'mock') {
-      try {
-        const search = query.data.q.toLocaleLowerCase(query.data.lang === 'th' ? 'th-TH' : 'en');
-        const communities = await loadCommunities();
-        const results = communities
-          .filter((community) =>
-            community.name_th.toLocaleLowerCase('th-TH').includes(search) ||
-            community.name_en.toLocaleLowerCase('en').includes(search)
-          )
-          .slice(0, 5)
-          .map((community) => ({
-            lat: community.lat,
-            lon: community.lon,
-            name: query.data.lang === 'th' ? community.name_th : community.name_en,
-            district: '',
-            province: '',
-            displayName: query.data.lang === 'th' ? community.name_th : community.name_en,
-          }));
-        res.status(200).json({ results });
-      } catch (error: unknown) {
-        const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
-        logger.error({ error: message }, 'Failed to load local mock search candidates');
-        res.status(500).json({ error: { code: 'COMMUNITIES_CONFIG_ERROR', messageTh: 'โหลดรายการค้นหาในโหมดสาธิตไม่สำเร็จ' } });
-      }
-      return;
-    }
     try {
       res.status(200).json({ results: await deps.geocodingProvider.search(query.data.q, query.data.lang) });
     } catch (error: unknown) {
@@ -311,10 +306,6 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
       res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
       return;
     }
-    if (deps.dataMode === 'mock') {
-      res.status(200).json({ result: null });
-      return;
-    }
     try {
       res.status(200).json({
         result: await deps.geocodingProvider.reverse(point.data.lat, point.data.lon, 'th'),
@@ -326,18 +317,37 @@ export function createApiRouter(deps: ApiRouterDeps): Router {
     }
   });
 
+  router.get('/forecast', async (req: Request, res: Response) => {
+    const point = PointQuerySchema.safeParse(req.query);
+    if (!point.success) {
+      res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
+      return;
+    }
+    try {
+      const forecast = await deps.riskDataService.getHourlyForecast(point.data.lat, point.data.lon);
+      if (!forecast) {
+        res.status(503).json({ error: { code: 'FORECAST_UNAVAILABLE', messageTh: 'โหลดข้อมูลพยากรณ์อากาศไม่สำเร็จ กรุณาลองอีกครั้ง' } });
+        return;
+      }
+      res.status(200).set('Cache-Control', 'public, max-age=300').json(HourlyForecastResponseSchema.parse(forecast));
+    } catch (error: unknown) {
+      const message = redactSecretsInText(error instanceof Error ? error.message : String(error));
+      logger.error({ error: message }, 'Failed to load hourly forecast');
+      res.status(503).json({ error: { code: 'FORECAST_UNAVAILABLE', messageTh: 'โหลดข้อมูลพยากรณ์อากาศไม่สำเร็จ กรุณาลองอีกครั้ง' } });
+    }
+  });
+
   router.get('/risk', async (req: Request, res: Response) => {
-    const query = RiskQuerySchema.safeParse(req.query);
+    const query = PointQuerySchema.safeParse(req.query);
     if (!query.success) {
       res.status(400).json({ error: { code: 'INVALID_COORDINATES', messageTh: 'พิกัดอยู่นอกประเทศไทยหรือไม่ถูกต้อง' } });
       return;
     }
     try {
-      const { lat, lon, ...options } = query.data;
+      const { lat, lon } = query.data;
       res.status(200).json(await deps.riskDataService.getPointRisk(
-        deps.dataMode === 'mock' ? lat : Number(lat.toFixed(2)),
-        deps.dataMode === 'mock' ? lon : Number(lon.toFixed(2)),
-        { ...options, scenario: options.scenario as MockScenarioName | undefined }
+        Number(lat.toFixed(2)),
+        Number(lon.toFixed(2))
       ));
     } catch (error: unknown) {
       const message = redactSecretsInText(error instanceof Error ? error.message : String(error));

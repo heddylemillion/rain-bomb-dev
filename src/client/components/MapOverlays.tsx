@@ -10,9 +10,8 @@ export type MapLayerId = 'risk' | OverlayLayerId;
 export interface LayerAvailability {
   id: MapLayerId;
   available: boolean;
-  reason: RiskDataReason | 'mock';
+  reason: RiskDataReason;
   updatedAt: string | null;
-  mock?: boolean;
 }
 
 export function MapControls({
@@ -90,21 +89,14 @@ export function MapControls({
 const PLAY_INTERVAL_MS = 1200;
 
 /**
- * Centered floating glass timeline.
+ * Centered floating glass timeline for real radar frames.
  * Playback only starts when the user presses "เล่น" (never autoplays).
- * Steps by 10 minutes; in live mode without radar forecast frames, hides the future segment.
  */
 export function RadarSlider({
-  mockMode,
-  minutes,
-  onMinutesChange,
   frames = [],
   selectedFrameTime,
   onFrameTimeChange,
 }: {
-  mockMode: boolean;
-  minutes: number;
-  onMinutesChange: (minutes: number) => void;
   frames?: RadarFrame[];
   selectedFrameTime?: number | null;
   onFrameTimeChange?: (time: number) => void;
@@ -116,22 +108,10 @@ export function RadarSlider({
     () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   );
 
-  // Live mode has no verified radar forecast frames, so future segment is hidden (max = 0).
-  const hasForecast = mockMode;
-  const frameMode = !mockMode;
-  const frameIndex = Math.max(0, frames.findIndex((frame) => frame.time === selectedFrameTime));
+  const foundIndex = frames.findIndex((frame) => frame.time === selectedFrameTime);
+  const frameIndex = foundIndex >= 0 ? foundIndex : Math.max(0, frames.length - 1);
   const frameIndexRef = useRef(frameIndex);
   frameIndexRef.current = frameIndex;
-  const maxMin = hasForecast ? 180 : 0;
-  const clampedMinutes = Math.max(-180, Math.min(maxMin, Math.round(minutes / 10) * 10));
-  const minutesRef = useRef(clampedMinutes);
-  minutesRef.current = clampedMinutes;
-
-  useEffect(() => {
-    if (!hasForecast && minutes > 0) {
-      onMinutesChange(0);
-    }
-  }, [hasForecast, minutes, onMinutesChange]);
 
   useEffect(() => {
     const updateVisibility = (): void => setVisible(document.visibilityState === 'visible');
@@ -149,60 +129,52 @@ export function RadarSlider({
   }, []);
 
   useEffect(() => {
-    if (!playing || !visible || reduceMotion) return undefined;
-    if (frameMode) {
-      if (frames.length === 0 || !onFrameTimeChange) return undefined;
-      const timer = window.setInterval(() => {
-        const nextIndex = (frameIndexRef.current + 1) % frames.length;
-        frameIndexRef.current = nextIndex;
-        const frame = frames[nextIndex];
-        if (frame) onFrameTimeChange(frame.time);
-      }, PLAY_INTERVAL_MS);
-      return () => window.clearInterval(timer);
+    if (!playing || !visible || reduceMotion || frames.length === 0 || !onFrameTimeChange) {
+      return undefined;
     }
     const timer = window.setInterval(() => {
-      const next = minutesRef.current + 10 > maxMin ? -180 : minutesRef.current + 10;
-      onMinutesChange(next);
+      const nextIndex = (frameIndexRef.current + 1) % frames.length;
+      frameIndexRef.current = nextIndex;
+      const frame = frames[nextIndex];
+      if (frame) onFrameTimeChange(frame.time);
     }, PLAY_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [frameMode, frames, maxMin, onFrameTimeChange, onMinutesChange, playing, reduceMotion, visible]);
+  }, [frames, onFrameTimeChange, playing, reduceMotion, visible]);
 
-  const activeFrame = frameMode ? frames[frameIndex] : undefined;
-  const frameClock = new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Bangkok',
-  }).format(new Date(activeFrame ? activeFrame.time * 1000 : Date.now() + clampedMinutes * 60_000));
+  const formatFrameClock = (unixSeconds: number): string =>
+    new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Asia/Bangkok',
+    }).format(new Date(unixSeconds * 1000));
+
+  const activeFrame = frames[frameIndex];
+  const frameClock = activeFrame
+    ? formatFrameClock(activeFrame.time)
+    : formatFrameClock(Math.floor(Date.now() / 1000));
 
   const frameOffsetMin = activeFrame && frames.length > 0
     ? Math.max(0, Math.round(((frames.at(-1)?.time ?? activeFrame.time) - activeFrame.time) / 60))
     : null;
-  const offsetText = frameMode
-    ? frameOffsetMin === null || frameOffsetMin === 0
-      ? t('timeNow')
-      : `−${frameOffsetMin} ${language === 'th' ? 'นาที' : 'min'}`
-    : clampedMinutes === 0
-      ? t('timeNow')
-      : `${clampedMinutes > 0 ? '+' : '−'}${Math.abs(clampedMinutes)} ${language === 'th' ? 'นาที' : 'min'}`;
+  const offsetText =
+    frames.length === 0
+      ? t('noRadarFrames')
+      : frameOffsetMin === null || frameOffsetMin === 0
+        ? t('timeNow')
+        : `−${frameOffsetMin} ${language === 'th' ? 'นาที' : 'min'}`;
 
-  const pastFillPct = frameMode
-    ? frames.length <= 1 ? 100 : frameIndex / (frames.length - 1) * 100
-    : hasForecast
-    ? Math.min(50, ((clampedMinutes + 180) / 360) * 100)
-    : ((clampedMinutes + 180) / 180) * 100;
-  const futureFillPct =
-    hasForecast && clampedMinutes > 0 ? (clampedMinutes / 360) * 100 : 0;
+  const pastFillPct = frames.length <= 1 ? 100 : (frameIndex / (frames.length - 1)) * 100;
 
   return (
     <section
-      aria-label={mockMode ? t('mockTimelineLabel') : t('timeSliderLabel')}
+      aria-label={t('timeSliderLabel')}
       className="slider-panel glass-panel rounded-2xl px-2.5 sm:px-3.5 py-1.5 sm:py-2.5 w-[min(640px,calc(100vw-16px))] md:w-[min(640px,calc(100vw-32px))] pointer-events-auto"
     >
       <div className="flex items-center gap-2 sm:gap-3">
         <button
           type="button"
           aria-pressed={playing}
-          disabled={reduceMotion || (frameMode && frames.length === 0)}
+          disabled={reduceMotion || frames.length === 0}
           onClick={() => setPlaying((current) => !current)}
           className={`glass-control-btn min-h-[44px] min-w-[74px] sm:min-w-[82px] px-2.5 sm:px-3 rounded-xl inline-flex items-center justify-center gap-1.5 text-xs sm:text-sm font-semibold shrink-0 ${
             playing ? 'glass-control-active' : ''
@@ -223,15 +195,9 @@ export function RadarSlider({
               <span className="text-sky-300">{offsetText}</span>
             </label>
 
-            {hasForecast ? (
-              <span className="timeline-forecast-tag px-1.5 py-0.5 rounded-md text-[0.64rem] font-semibold shrink-0">
-                {t('radarForecastSimulated')}
-              </span>
-            ) : (
-              <span className="px-1.5 py-0.5 rounded-md bg-white/10 border border-white/15 text-[0.64rem] font-semibold text-slate-100 shrink-0">
-                {t('noRadarForecast')}
-              </span>
-            )}
+            <span className="px-1.5 py-0.5 rounded-md bg-white/10 border border-white/15 text-[0.64rem] font-semibold text-slate-100 shrink-0">
+              {t('noRadarForecast')}
+            </span>
           </div>
 
           <div className="relative h-6 flex items-center">
@@ -239,59 +205,34 @@ export function RadarSlider({
               className="w-full h-2.5 rounded-full overflow-hidden flex border border-white/15 bg-slate-950/70"
               aria-hidden="true"
             >
-              {hasForecast ? (
-                <>
-                  <div className="w-1/2 h-full relative timeline-segment-past">
-                    <div
-                      className="h-full bg-sky-400"
-                      style={{ width: `${Math.min(100, pastFillPct * 2)}%` }}
-                    />
-                  </div>
-                  <div className="w-1/2 h-full relative timeline-segment-future border-l-2 border-dashed border-sky-200/80">
-                    {futureFillPct > 0 && (
-                      <div
-                        className="h-full bg-indigo-400/70"
-                        style={{ width: `${Math.min(100, futureFillPct * 2)}%` }}
-                      />
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="w-full h-full relative timeline-segment-past">
-                  <div
-                    className="h-full bg-sky-400"
-                    style={{ width: `${Math.max(0, Math.min(100, pastFillPct))}%` }}
-                  />
-                </div>
-              )}
+              <div className="w-full h-full relative timeline-segment-past">
+                <div
+                  className="h-full bg-sky-400"
+                  style={{ width: `${Math.max(0, Math.min(100, pastFillPct))}%` }}
+                />
+              </div>
             </div>
 
             <span
               aria-hidden="true"
               className="timeline-now-pin pointer-events-none"
-              style={{ left: hasForecast ? '50%' : frameMode ? `${pastFillPct}%` : '100%' }}
+              style={{ left: `${pastFillPct}%` }}
             />
 
             <input
               id="radar-time"
               type="range"
-              min={frameMode ? 0 : -180}
-              max={frameMode ? Math.max(0, frames.length - 1) : maxMin}
-              step={frameMode ? 1 : 10}
-              value={frameMode ? frameIndex : clampedMinutes}
-              disabled={frameMode && frames.length === 0}
-              aria-valuetext={`${frameClock} · ${offsetText}${
-                hasForecast && clampedMinutes > 0 ? ` · ${t('radarForecastSimulated')}` : ''
-              }`}
+              min={0}
+              max={Math.max(0, frames.length - 1)}
+              step={1}
+              value={frameIndex}
+              disabled={frames.length === 0}
+              aria-valuetext={`${frameClock} · ${offsetText}`}
               onChange={(event) => {
                 setPlaying(false);
                 const next = Number(event.target.value);
-                if (frameMode) {
-                  const frame = frames[next];
-                  if (frame) onFrameTimeChange?.(frame.time);
-                } else {
-                  onMinutesChange(next);
-                }
+                const frame = frames[next];
+                if (frame) onFrameTimeChange?.(frame.time);
               }}
               className="timeline-range-input absolute inset-0 w-full h-full m-0 cursor-pointer"
             />
@@ -301,41 +242,15 @@ export function RadarSlider({
             className="flex items-center justify-between text-[0.6rem] sm:text-[0.65rem] font-medium text-slate-200 leading-none"
             aria-hidden="true"
           >
-            {hasForecast ? (
-              <>
-                <span>{t('timePast3')}</span>
-                <span className={clampedMinutes === 0 ? 'font-bold text-sky-300' : ''}>
-                  {t('timeNow')}
-                </span>
-                <span>{t('timeNext3')}</span>
-              </>
-            ) : frameMode ? (
-              <>
-                <span>{frames[0] ? new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  timeZone: 'Asia/Bangkok',
-                }).format(new Date(frames[0].time * 1000)) : t('timePast3')}</span>
-                <span>{frames[Math.floor(frames.length / 2)] ? new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  timeZone: 'Asia/Bangkok',
-                }).format(new Date(frames[Math.floor(frames.length / 2)]!.time * 1000)) : t('timePast1')}</span>
-                <span>{frames.at(-1) ? new Intl.DateTimeFormat(language === 'th' ? 'th-TH' : 'en-GB', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  timeZone: 'Asia/Bangkok',
-                }).format(new Date(frames.at(-1)!.time * 1000)) : t('timeNow')}</span>
-              </>
-            ) : (
-              <>
-                <span>{t('timePast3')}</span>
-                <span>{t('timePast1')}</span>
-                <span className={clampedMinutes === 0 ? 'font-bold text-sky-300' : ''}>
-                  {t('timeNow')}
-                </span>
-              </>
-            )}
+            <span>{frames[0] ? formatFrameClock(frames[0].time) : t('timePast3')}</span>
+            <span>
+              {frames[Math.floor(frames.length / 2)]
+                ? formatFrameClock(frames[Math.floor(frames.length / 2)]!.time)
+                : t('timePast1')}
+            </span>
+            <span className={frameOffsetMin === 0 ? 'font-bold text-sky-300' : ''}>
+              {frames.at(-1) ? formatFrameClock(frames.at(-1)!.time) : t('timeNow')}
+            </span>
           </div>
         </div>
       </div>

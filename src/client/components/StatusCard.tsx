@@ -521,9 +521,7 @@ export function StatusCard({
                           </td>
                           <td className="py-1 px-1 text-slate-200">{formatNumber(factor.weight, 2)}</td>
                           <td className="py-1 pl-1 text-slate-200">
-                            {factor.source.startsWith('จำลอง (scenario:')
-                              ? factor.source
-                              : t(FACTOR_SOURCE_KEYS[factor.id])}
+                            {t(FACTOR_SOURCE_KEYS[factor.id])}
                             {!factor.available ? ` · ${t(REASON_KEYS[factor.reason ?? 'error'])}` : ''}
                           </td>
                         </tr>
@@ -646,6 +644,14 @@ export function StatusCard({
                         {formatBangkokTime(environment.seaLevel.hourly[0]!.timeISO, language)}):{' '}
                         {formatNumber(environment.seaLevel.hourly[0]!.seaLevelHeightMslM)}{' '}
                         {t('meterUnit')}
+                        {environment.seaLevel.hourly[0]!.waveHeightM !== null && (
+                          <>
+                            {' · '}
+                            {t('waveHeightNow')}:{' '}
+                            {formatNumber(environment.seaLevel.hourly[0]!.waveHeightM)}{' '}
+                            {t('meterUnit')}
+                          </>
+                        )}
                       </p>
                       <SeaLevelChart
                         values={environment.seaLevel.hourly}

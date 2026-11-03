@@ -84,6 +84,57 @@ The soil layer contains Land Development Department soil-series data for
 Pathum Thani. It is area-level context, not a street-level survey or risk
 input. Confirm the dataset's redistribution terms before republishing it.
 
+## Disaster preparedness assistant
+
+The map sidebar's **ถามผู้ช่วย** drawer sends the currently selected area,
+coordinates, the latest question, and up to six recent conversation messages
+to `POST /api/chat`. The backend validates the area, recomputes context using
+the existing rule-based risk service, and adds available elevation/marine,
+radar-coverage, storm-track, and provider information. Missing historical
+rainfall, satellite imagery, IoT readings, and observed local water levels are
+identified as unavailable; they are never synthesized. The model cannot
+change the risk score, level, or alert type.
+
+The assistant is deterministic/off by default. `CHAT_PROVIDER=none` returns a
+rule-based response without an AI call. `DATA_MODE=mock` forces the assistant
+to mock mode and makes no OpenRouter request. To enable OpenRouter, set these
+backend-only variables in your local `.env`:
+
+```dotenv
+DATA_MODE=live
+CHAT_PROVIDER=openrouter
+OPENROUTER_API_KEY=your_api_key
+OPENROUTER_MODEL=your_selected_model
+CHAT_DAILY_BUDGET_REQUESTS=20
+```
+
+Choose any model slug supported by OpenRouter for `OPENROUTER_MODEL`; optional
+comma-separated backup slugs go in `OPENROUTER_FALLBACK_MODELS`. Requests use
+the [official Chat Completions API](https://openrouter.ai/docs/api-reference/overview),
+a 15-second timeout, and provider privacy routing with
+[`data_collection: "deny"`](https://openrouter.ai/docs/guides/routing/provider-selection);
+if no provider matches, the app uses its deterministic fallback
+instead of weakening privacy. OpenRouter documents `models` as a supported
+request field for model routing and `zdr` for strict zero-data-retention
+routing. Compatibility of individual `:free` model endpoints with the
+no-collection setting is **UNVERIFIED**; check the provider/model details
+before enabling them. The key stays in backend environment
+configuration and is never returned by runtime-config or sent to the browser.
+The current frontend/API architecture uses complete JSON responses rather
+than streaming. The selected area name and rounded coordinates, risk context,
+conversation messages, and the OpenRouter prompt are sent through the backend;
+do not enter personal information. Conversation text is not logged or stored
+as a conversation history on the server; a validated answer may remain in an
+in-memory cache for up to ten minutes.
+
+Emergency phrases trigger a deterministic response before any model request.
+No emergency phone numbers are configured. The Thai knowledge base contains
+draft guidance only; a live deployment with
+`REQUIRE_APPROVED_ADVISORIES=true` uses only reviewed entries. Verify every
+topic and official emergency contact before approval with `npm run kb:check`.
+See [chatbot review guidance](./docs/chatbot-review.md). This assistant is not
+an official alerting or emergency-dispatch service.
+
 ## Attribution
 
 The app credits OpenFreeMap/OpenMapTiles, OpenStreetMap contributors,
@@ -98,4 +149,5 @@ npm run typecheck
 npm test
 npm run build:web
 npm run test:layout
+npm run kb:check
 ```

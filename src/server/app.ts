@@ -9,11 +9,9 @@ import { NominatimGeocodingProvider } from './services/geocodingProvider.js';
 import type { GeocodingProvider } from './services/geocodingProvider.js';
 import { RiskDataService } from './services/riskDataService.js';
 import { EnvironmentDataService } from './services/environmentDataService.js';
+import { ChatService } from './services/chatService.js';
 import {
   GdacsStormTrackProvider,
-  MockLightningProvider,
-  MockRadarProvider,
-  MockStormTrackProvider,
   NoLightningProvider,
   RainViewerRadarProvider,
   TmdRadarProvider,
@@ -32,27 +30,33 @@ export interface CreateAppOptions {
   radarProvider?: RadarProvider;
   lightningProvider?: LightningProvider;
   stormTrackProvider?: StormTrackProvider;
+  chatService?: ChatService;
 }
 
 export function createApp(options: CreateAppOptions = {}): Express {
   const cfg = options.config ?? appConfig;
   const radarProvider = options.radarProvider ?? (
-    cfg.providers.radar.mode === 'mock'
-      ? new MockRadarProvider()
-      : cfg.providers.radar.id === 'rainviewer'
-        ? new RainViewerRadarProvider(cfg.providers.radar.mode)
-        : new TmdRadarProvider(cfg.providers.radar.mode)
+    cfg.providers.radar.id === 'rainviewer'
+      ? new RainViewerRadarProvider(cfg.providers.radar.mode)
+      : new TmdRadarProvider(cfg.providers.radar.mode)
   );
-  const lightningProvider = options.lightningProvider ?? (
-    cfg.providers.lightning.mode === 'mock'
-      ? new MockLightningProvider()
-      : new NoLightningProvider(cfg.providers.lightning.mode)
-  );
-  const stormTrackProvider = options.stormTrackProvider ?? (
-    cfg.providers.stormTrack.mode === 'mock'
-      ? new MockStormTrackProvider()
-      : new GdacsStormTrackProvider(cfg.providers.stormTrack.mode)
-  );
+  const lightningProvider = options.lightningProvider ??
+    new NoLightningProvider(cfg.providers.lightning.mode);
+  const stormTrackProvider = options.stormTrackProvider ??
+    new GdacsStormTrackProvider(cfg.providers.stormTrack.mode);
+  const riskDataService = options.riskDataService ??
+    new RiskDataService(cfg.dataMode, lightningProvider);
+  const environmentDataService = options.environmentDataService ??
+    new EnvironmentDataService({ mode: cfg.dataMode });
+  const chatService = options.chatService ?? new ChatService({
+    dataMode: cfg.dataMode,
+    config: cfg.chat,
+    riskDataService,
+    environmentDataService,
+    radarProvider,
+    lightningProvider,
+    stormTrackProvider,
+  });
 
   const app = express();
   app.use(helmet());
@@ -82,6 +86,19 @@ export function createApp(options: CreateAppOptions = {}): Express {
     },
   }));
 
+  app.use('/api/chat', rateLimit({
+    windowMs: 60_000,
+    limit: 8,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: {
+      error: {
+        code: 'CHAT_RATE_LIMIT_EXCEEDED',
+        messageTh: 'ส่งคำถามบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่',
+      },
+    },
+  }));
+
   app.use('/api', rateLimit({
     windowMs: 15 * 60_000,
     limit: 120,
@@ -99,14 +116,13 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use('/api', createApiRouter({
     dataMode: cfg.dataMode,
     stormConeKmPer30Min: cfg.stormConeKmPer30Min,
-    environmentDataService: options.environmentDataService ?? new EnvironmentDataService({
-      mode: cfg.dataMode,
-    }),
+    environmentDataService,
     geocodingProvider: options.geocodingProvider ?? new NominatimGeocodingProvider({
       userAgent: cfg.geocoding.userAgent,
       countryCodes: cfg.geocoding.countryCodes,
     }),
-    riskDataService: options.riskDataService ?? new RiskDataService(cfg.dataMode, lightningProvider),
+    riskDataService,
+    chatService,
     radarProvider,
     lightningProvider,
     stormTrackProvider,

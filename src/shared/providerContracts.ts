@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const ProviderModeSchema = z.enum(['live', 'mock', 'cache']);
+export const ProviderModeSchema = z.enum(['live', 'cache']);
 export type ProviderMode = z.infer<typeof ProviderModeSchema>;
 
 export const RadarFrameSchema = z.object({

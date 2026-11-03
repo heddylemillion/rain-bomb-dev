@@ -2,10 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import { AreaEnvironmentSchema, type AreaEnvironment } from '../../shared/contracts.js';
+import { haversineDistanceKm } from '../../shared/geo.js';
 import { DATA_DIR_PATH, SEA_REFERENCE_POINTS_CONFIG_PATH } from '../config.js';
 import { elevationCell, PermanentElevationCache } from './elevationCache.js';
+import { fetchOpenMeteoMarine, type WeatherApiClient } from './openMeteoSdk.js';
 
-export type DataMode = 'live' | 'mock' | 'cache';
+export { haversineDistanceKm };
+export type DataMode = 'live' | 'cache';
 export type Coordinates = { latitude: number; longitude: number };
 
 const ReferencePointsSchema = z.object({
@@ -23,14 +26,6 @@ const ReferencePointsSchema = z.object({
 
 export type SeaReferencePoint = z.infer<typeof ReferencePointsSchema>['points'][number];
 
-const MarineForecastSchema = z.object({
-  hourly: z.object({
-    time: z.array(z.string()),
-    sea_level_height_msl: z.array(z.number().nullable()),
-    wave_height: z.array(z.number().nullable()),
-  }),
-});
-
 interface MarineCacheEntry {
   expiresAt: number;
   hourly: AreaEnvironment['seaLevel']['hourly'];
@@ -45,6 +40,7 @@ export interface EnvironmentProviderOptions {
   mode: DataMode;
   timeoutMs?: number;
   fetcher?: typeof fetch;
+  weatherApi?: WeatherApiClient;
   elevationCache?: PermanentElevationCache;
   elevationCachePath?: string;
   marineCachePath?: string;
@@ -67,42 +63,6 @@ export interface MarineProvider {
     fetchedAtISO: string | null;
     messageTh: string | null;
   }>;
-}
-
-function stableHash(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function mockElevation(point: Coordinates): number {
-  const cell = elevationCell(point.latitude, point.longitude);
-  return (stableHash(cell.key) % 320) / 10;
-}
-
-function mockMarine(point: SeaReferencePoint, now: number): AreaEnvironment['seaLevel']['hourly'] {
-  const firstHour = Math.floor((now + 7 * 60 * 60 * 1000) / (60 * 60 * 1000)) *
-    (60 * 60 * 1000) - 7 * 60 * 60 * 1000;
-  const seed = stableHash(`${point.lat.toFixed(3)},${point.lon.toFixed(3)}`);
-  return Array.from({ length: 49 }, (_, index) => {
-    const time = new Date(firstHour + index * 60 * 60 * 1000 + 7 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 16);
-    const phase = ((firstHour / 3_600_000 + index + seed % 24) % 24) / 24;
-    return {
-      timeISO: `${time}+07:00`,
-      seaLevelHeightMslM: Math.round((0.3 + Math.sin(phase * Math.PI * 2) * 0.8) * 100) / 100,
-      waveHeightM: Math.round((0.2 + ((seed + index * 17) % 20) / 100) * 100) / 100,
-    };
-  });
-}
-
-function thaiHourISO(value: string): string | null {
-  const parsed = Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}+07:00`);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
 function makeApiUrl(
@@ -157,10 +117,6 @@ export class OpenMeteoElevationProvider implements ElevationProvider {
     for (let index = 0; index < cells.length; index += 1) {
       const cell = cells[index];
       if (!cell) continue;
-      if (this.mode === 'mock') {
-        results[index] = { valueM: mockElevation(points[index]!), messageTh: null };
-        continue;
-      }
       const cached = await this.cache.get(cell.key);
       if (cached !== null) {
         results[index] = { valueM: cached, messageTh: null };
@@ -313,14 +269,14 @@ class MarineForecastCache {
 export class OpenMeteoMarineProvider implements MarineProvider {
   private readonly mode: DataMode;
   private readonly timeoutMs: number;
-  private readonly fetcher: typeof fetch;
+  private readonly weatherApi: WeatherApiClient | undefined;
   private readonly cache: MarineForecastCache;
   private readonly now: () => number;
 
   constructor(options: EnvironmentProviderOptions) {
     this.mode = options.mode;
     this.timeoutMs = options.timeoutMs ?? 8000;
-    this.fetcher = options.fetcher ?? fetch;
+    this.weatherApi = options.weatherApi;
     this.cache = new MarineForecastCache(options.marineCachePath);
     this.now = options.now ?? Date.now;
   }
@@ -330,14 +286,6 @@ export class OpenMeteoMarineProvider implements MarineProvider {
     fetchedAtISO: string | null;
     messageTh: string | null;
   }> {
-    if (this.mode === 'mock') {
-      return {
-        hourly: mockMarine(point, this.now()).slice(0, 49),
-        fetchedAtISO: new Date(this.now()).toISOString(),
-        messageTh: null,
-      };
-    }
-
     const cached = await this.cache.get(point.id, this.now());
     if (cached) {
       const hasAnySeaLevel = cached.hourly.some((item) => item.seaLevelHeightMslM !== null);
@@ -356,40 +304,21 @@ export class OpenMeteoMarineProvider implements MarineProvider {
     }
 
     try {
-      const url = new URL('https://marine-api.open-meteo.com/v1/marine');
-      url.searchParams.set('latitude', String(point.lat));
-      url.searchParams.set('longitude', String(point.lon));
-      url.searchParams.set('hourly', 'sea_level_height_msl,wave_height');
-      url.searchParams.set('forecast_days', '3');
-      url.searchParams.set('timezone', 'Asia/Bangkok');
-
-      const response = await fetchResponse(url, this.fetcher, this.timeoutMs);
-      if (!response.ok) {
-        const explanation = response.status === 429
-          ? 'โควตาการเรียก Open-Meteo Marine อาจเต็มแล้ว'
-          : `Open-Meteo Marine ตอบกลับ HTTP ${response.status}`;
-        throw new Error(explanation);
-      }
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch {
-        throw new Error('อ่านพยากรณ์จาก Open-Meteo Marine ไม่สำเร็จ');
-      }
-      const parsed = MarineForecastSchema.safeParse(payload);
-      if (!parsed.success) {
-        throw new Error('รูปแบบพยากรณ์จาก Open-Meteo Marine ไม่ถูกต้อง');
-      }
+      const marineData = await fetchOpenMeteoMarine(point.lat, point.lon, {
+        ...(this.weatherApi ? { weatherApi: this.weatherApi } : {}),
+        timeoutMs: this.timeoutMs,
+      });
       const now = this.now();
-      const hourly = parsed.data.hourly.time.flatMap((time, index) => {
-        const timeISO = thaiHourISO(time);
-        if (!timeISO || Date.parse(timeISO) < now) return [];
-        return [{
-          timeISO,
-          seaLevelHeightMslM: parsed.data.hourly.sea_level_height_msl[index] ?? null,
-          waveHeightM: parsed.data.hourly.wave_height[index] ?? null,
-        }];
-      }).slice(0, 49);
+      const hourly = marineData.hourly.time
+        .flatMap((timeISO, index) => {
+          if (Date.parse(timeISO) < now) return [];
+          return [{
+            timeISO,
+            seaLevelHeightMslM: marineData.hourly.sea_level_height_msl[index] ?? null,
+            waveHeightM: marineData.hourly.wave_height[index] ?? null,
+          }];
+        })
+        .slice(0, 49);
       const fetchedAtISO = new Date(now).toISOString();
       await this.cache.set(point.id, {
         expiresAt: now + 45 * 60 * 1000,
@@ -410,23 +339,6 @@ export class OpenMeteoMarineProvider implements MarineProvider {
       };
     }
   }
-}
-
-export function haversineDistanceKm(
-  latitude1: number,
-  longitude1: number,
-  latitude2: number,
-  longitude2: number
-): number {
-  const radians = (degrees: number): number => (degrees * Math.PI) / 180;
-  const latitudeDelta = radians(latitude2 - latitude1);
-  const longitudeDelta = radians(longitude2 - longitude1);
-  const angle = 2 * Math.asin(Math.sqrt(
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(radians(latitude1)) * Math.cos(radians(latitude2)) *
-    Math.sin(longitudeDelta / 2) ** 2
-  ));
-  return 6371 * angle;
 }
 
 export function selectSeaReferencePoint(
@@ -460,14 +372,12 @@ export function assertMatchingDatums(
 }
 
 export class EnvironmentDataService {
-  private readonly mode: DataMode;
   private readonly elevation: ElevationProvider;
   private readonly marine: MarineProvider;
   private readonly referencePointsPath: string;
   private referenceConfig: z.infer<typeof ReferencePointsSchema> | null = null;
 
   constructor(options: EnvironmentProviderOptions) {
-    this.mode = options.mode;
     this.elevation = new OpenMeteoElevationProvider(options);
     this.marine = new OpenMeteoMarineProvider(options);
     this.referencePointsPath = options.referencePointsPath ?? SEA_REFERENCE_POINTS_CONFIG_PATH;
@@ -495,7 +405,6 @@ export class EnvironmentDataService {
     ]);
 
     return {
-      isMock: this.mode === 'mock',
       elevation,
       seaLevel: {
         referencePoint: {

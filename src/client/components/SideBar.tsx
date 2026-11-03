@@ -3,6 +3,7 @@ import {
   CloudRain,
   Layers,
   Menu,
+  MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
   SlidersHorizontal,
@@ -11,7 +12,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { OverlayLayerId } from '../../shared/contracts.js';
-import type { MockScenarioName } from '../../shared/mockWeatherScenario.js';
 import { useTranslation } from '../i18n.js';
 import { LEVEL_SYMBOL } from '../lib/risk.js';
 import { SOIL_LEGEND_ITEMS, SOIL_TEXTURE_PALETTE } from '../lib/soilStyle.js';
@@ -27,7 +27,6 @@ export interface SideLayerItem {
   label: string;
   description: string;
   state: SideTopicState;
-  mock?: boolean;
 }
 
 const SIDEBAR_STORAGE_KEY = 'rain-burst-sidebar-expanded';
@@ -104,15 +103,9 @@ function SidebarLayerButton({
 
         {expanded && (
           <span className="inline-flex items-center gap-1 shrink-0">
-            {item.mock ? (
-              <span className="px-1.5 py-0.5 rounded bg-white/15 text-[0.6rem] font-semibold text-slate-100 leading-none">
-                {t('mockPill')}
-              </span>
-            ) : (
-              <span className="text-[0.62rem] font-semibold px-1.5 py-0.5 rounded bg-white/10 text-slate-100 leading-none">
-                {isOn ? 'ON' : 'OFF'}
-              </span>
-            )}
+            <span className="text-[0.62rem] font-semibold px-1.5 py-0.5 rounded bg-white/10 text-slate-100 leading-none">
+              {isOn ? 'ON' : 'OFF'}
+            </span>
             <span
               className={`w-2 h-2 rounded-full shrink-0 ${
                 isOn ? 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.85)]' : 'bg-slate-400/50'
@@ -127,7 +120,6 @@ function SidebarLayerButton({
         <span className="font-semibold">{item.label}</span>
         {' · '}
         <span>{stateLabel}</span>
-        {item.mock ? ` · ${t('mockPill')}` : ''}
       </GlassTooltip>
     </div>
   );
@@ -136,23 +128,21 @@ function SidebarLayerButton({
 export function SideBar({
   layers,
   onToggleLayer,
-  mockMode,
-  scenario,
-  onScenarioChange,
   radarOpacity,
   onRadarOpacityChange,
   menuOpen,
   onOpenMenu,
+  onOpenChat,
+  chatOpen,
 }: {
   layers: SideLayerItem[];
   onToggleLayer: (id: SideLayerId) => void;
-  mockMode: boolean;
-  scenario: MockScenarioName;
-  onScenarioChange: (scenario: MockScenarioName) => void;
   radarOpacity: number;
   onRadarOpacityChange: (opacity: number) => void;
   menuOpen: boolean;
   onOpenMenu: () => void;
+  onOpenChat: () => void;
+  chatOpen: boolean;
 }): React.ReactNode {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(readInitialExpanded);
@@ -300,11 +290,11 @@ export function SideBar({
                   >
                     <div>
                       <div className="flex items-center justify-between text-xs font-semibold text-slate-100 mb-1.5">
-                        <label htmlFor="mock-radar-opacity">{t('mockRadarOpacity')}</label>
+                        <label htmlFor="radar-opacity">{t('radarOpacity')}</label>
                         <span>{Math.round(radarOpacity * 100)}%</span>
                       </div>
                       <input
-                        id="mock-radar-opacity"
+                        id="radar-opacity"
                         type="range"
                         min={0.2}
                         max={1}
@@ -316,35 +306,9 @@ export function SideBar({
                       />
                     </div>
 
-                    {mockMode && (
-                      <div>
-                        <label
-                          htmlFor="mock-scenario"
-                          className="block text-xs font-semibold text-slate-100 mb-1.5"
-                        >
-                          {t('mockScenarioLabel')}
-                        </label>
-                        <select
-                          id="mock-scenario"
-                          value={scenario}
-                          onChange={(event) => {
-                            const next = event.target.value;
-                            if (next === 'calm' || next === 'moderate' || next === 'burst') {
-                              onScenarioChange(next);
-                            }
-                          }}
-                          className="glass-select w-full min-h-[44px] rounded-xl px-2.5 text-xs font-semibold"
-                        >
-                          <option value="calm">{t('scenarioCalm')}</option>
-                          <option value="moderate">{t('scenarioModerate')}</option>
-                          <option value="burst">{t('scenarioBurst')}</option>
-                        </select>
-                      </div>
-                    )}
-
                     <div className="border-t border-white/10 pt-2.5 flex flex-col gap-2">
                       <span className="text-xs font-semibold text-slate-100">
-                        {t('mockRadarLegend')}
+                        {t('radarLegend')}
                       </span>
                       <div className="radar-ramp-bar h-2.5 w-full rounded-full" aria-hidden="true" />
                       <div className="flex justify-between text-[0.65rem] font-medium text-slate-200">
@@ -358,12 +322,8 @@ export function SideBar({
 
                       <div className="text-[0.68rem] text-slate-200 flex flex-col gap-1 pt-1">
                         <div>
-                          <strong className="text-slate-100">{t('layerLightning')}:</strong>{' '}
-                          {t('mockAgeRecent')} · {t('mockAgeMid')} · {t('mockAgeOld')}
-                        </div>
-                        <div>
-                          <strong className="text-slate-100">{t('layerStormTrack')}:</strong> +30..+180
-                          นาที · {t('coneOfUncertainty')}
+                          <strong className="text-slate-100">{t('layerStormTrack')}:</strong>{' '}
+                          GDACS · {t('coneOfUncertainty')}
                         </div>
                       </div>
 
@@ -435,15 +395,24 @@ export function SideBar({
         </section>
       )}
 
-      {!expanded && mockMode && (
-        <div className="text-center">
-          <span className="inline-block px-1.5 py-0.5 rounded bg-white/15 text-[0.58rem] font-semibold text-slate-100 leading-none">
-            {t('mockPill')}
-          </span>
-        </div>
-      )}
-
       <div className="border-t border-white/10 pt-1.5 mt-0.5 relative">
+        <button
+          type="button"
+          data-chat-trigger="true"
+          aria-expanded={chatOpen}
+          aria-haspopup="dialog"
+          onClick={onOpenChat}
+          className={`glass-control-btn min-h-[44px] w-full rounded-xl flex items-center ${
+            expanded ? 'justify-start px-2.5 gap-2' : 'justify-center px-0 min-w-[44px]'
+          } ${chatOpen ? 'glass-control-active' : ''}`}
+        >
+          <MessageCircle className="w-4 h-4 text-sky-300 shrink-0" aria-hidden="true" />
+          {expanded ? (
+            <span className="text-xs font-semibold text-slate-50">{t('chatTitle')}</span>
+          ) : (
+            <span className="sr-only">{t('chatTitle')}</span>
+          )}
+        </button>
         <button
           type="button"
           data-menu-trigger="true"

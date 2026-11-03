@@ -110,7 +110,6 @@ export const RiskResultSchema = z.object({
   fetchedAt: z.string().nullable(),
   noticeTh: z.string(),
   recommendationTh: z.string(),
-  isMock: z.boolean(),
 });
 
 export type RiskResult = z.infer<typeof RiskResultSchema>;
@@ -130,7 +129,6 @@ export const PointRiskResponseSchema = RiskResultSchema;
 export type PointRiskResponse = z.infer<typeof PointRiskResponseSchema>;
 
 export const AreaEnvironmentSchema = z.object({
-  isMock: z.boolean(),
   elevation: z.object({
     valueM: z.number().nullable(),
     messageTh: z.string().nullable(),
@@ -156,6 +154,28 @@ export const AreaEnvironmentSchema = z.object({
 });
 
 export type AreaEnvironment = z.infer<typeof AreaEnvironmentSchema>;
+
+export const HourlyForecastEntrySchema = z.object({
+  timeISO: z.string(),
+  temperatureC: z.number().nullable(),
+  precipitationMm: z.number().nullable(),
+  precipitationProbabilityPct: z.number().nullable(),
+  humidityPct: z.number().nullable(),
+  pressureMslHpa: z.number().nullable(),
+  windSpeedKmh: z.number().nullable(),
+});
+export type HourlyForecastEntry = z.infer<typeof HourlyForecastEntrySchema>;
+
+export const HourlyForecastResponseSchema = z.object({
+  latitude: z.number(),
+  longitude: z.number(),
+  elevationM: z.number().nullable(),
+  utcOffsetSeconds: z.number(),
+  fetchedAtISO: z.string().nullable(),
+  source: z.literal('Open-Meteo'),
+  hourly: z.array(HourlyForecastEntrySchema),
+});
+export type HourlyForecastResponse = z.infer<typeof HourlyForecastResponseSchema>;
 
 export const RiskDataReasonSchema = z.enum(['ok', 'no_plan', 'no_coverage', 'unavailable', 'error']);
 export type RiskDataReason = z.infer<typeof RiskDataReasonSchema>;

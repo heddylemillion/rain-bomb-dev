@@ -27,7 +27,7 @@ if (
   typeof config.lightningProvider !== 'object' ||
   config.lightningProvider === null ||
   !('id' in config.lightningProvider) ||
-  (config.lightningProvider.id !== 'none' && config.lightningProvider.id !== 'mock')
+  config.lightningProvider.id !== 'none'
 ) {
   throw new Error('Runtime configuration reports an unknown lightning provider.');
 }

@@ -240,7 +240,6 @@ export class RainViewerRadarProvider implements RadarProvider {
     frames: RadarFrame[];
     coverage: 'available' | 'none' | 'unknown';
   }> {
-    if (this.mode === 'mock') return { frames: [], coverage: 'unknown' };
     const metadata = await this.getMetadata();
     if (!metadata) {
       if (this.mode === 'cache' && this.metadataCache) {
@@ -253,7 +252,7 @@ export class RainViewerRadarProvider implements RadarProvider {
   }
 
   public async getTile(coords: TileCoordinates, frameTime: number): Promise<Buffer | null> {
-    if (this.mode === 'mock' || coords.z > this.maxZoom) return null;
+    if (coords.z > this.maxZoom) return null;
     const metadata = await this.getMetadata();
     const frame = metadata?.radar.past.find((item) => item.time === frameTime);
     if (!metadata || !frame) return null;
@@ -367,40 +366,6 @@ export class TmdRadarProvider implements RadarProvider {
   }
 }
 
-export class MockRadarProvider implements RadarProvider {
-  public readonly id = 'mock';
-  public readonly maxZoom = 7;
-  public readonly attribution = 'Simulated data';
-  public readonly attributionUrl = 'https://github.com/heddylemillion/rain-bomb-dev';
-  public readonly mode: ProviderMode = 'mock';
-
-  public async getFrames(): Promise<{ frames: RadarFrame[]; coverage: 'available' | 'none' | 'unknown' }> {
-    return { frames: [], coverage: 'unknown' };
-  }
-
-  public async getTile(): Promise<Buffer | null> {
-    return null;
-  }
-}
-
-export class MockLightningProvider implements LightningProvider {
-  public readonly id = 'mock';
-  public readonly mode: ProviderMode = 'mock';
-  public readonly attribution = 'Simulated lightning';
-  public readonly attributionUrl = 'https://github.com/heddylemillion/rain-bomb-dev';
-  public readonly licenceLimits = 'Synthetic demonstration only; never used in live risk inputs.';
-
-  public async getSummary(): Promise<LightningSummary> {
-    return {
-      count30min: null,
-      nearestStrikeKm: null,
-      within5km15min: null,
-      source: 'Mock lightning provider',
-      observedAt: null,
-    };
-  }
-}
-
 export class NoLightningProvider implements LightningProvider {
   public readonly id = 'none';
   public readonly attribution = 'No lightning provider configured';
@@ -467,7 +432,6 @@ export class GdacsStormTrackProvider implements StormTrackProvider {
   ) {}
 
   public async getTracks(): Promise<StormTrackFeatureCollection> {
-    if (this.mode === 'mock') return { type: 'FeatureCollection', features: [] };
     if (this.cache && this.cache.expiresAt > this.now()) return this.cache.value;
     if (this.mode === 'cache' || this.breaker.isOpen(this.now())) {
       return this.cache?.value ?? { type: 'FeatureCollection', features: [] };
@@ -524,17 +488,5 @@ export class GdacsStormTrackProvider implements StormTrackProvider {
     });
     if (!response.ok) throw new Error(`GDACS returned HTTP ${response.status}`);
     return response.json();
-  }
-}
-
-export class MockStormTrackProvider implements StormTrackProvider {
-  public readonly id = 'mock';
-  public readonly mode: ProviderMode = 'mock';
-  public readonly attribution = 'Simulated storm tracks';
-  public readonly attributionUrl = 'https://github.com/heddylemillion/rain-bomb-dev';
-  public readonly licenceLimits = 'Synthetic demonstration only; not observed storm data.';
-
-  public async getTracks(): Promise<StormTrackFeatureCollection> {
-    return { type: 'FeatureCollection', features: [] };
   }
 }

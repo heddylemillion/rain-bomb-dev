@@ -1,16 +1,12 @@
-import { Component, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ErrorInfo, PropsWithChildren } from 'react';
 import L from 'leaflet';
 import { Map as MapLibreMap } from 'maplibre-gl';
 import {
-  Circle,
   CircleMarker,
   GeoJSON,
   MapContainer,
   Marker,
-  Polygon,
-  Polyline,
-  Popup,
   TileLayer,
   Tooltip,
   useMap,
@@ -25,21 +21,8 @@ import type {
   SoilFeatureCollection,
   SoilInfo,
 } from '../../shared/contracts.js';
+import { DEFAULT_INITIAL_POINT } from '../../shared/geo.js';
 import type { LightningSummary, StormTrackFeatureCollection } from '../../shared/providerContracts.js';
-import {
-  activeCell,
-  buildStormTrackAndCone,
-  cellIntensity,
-  cellPosition,
-  createMockScenario,
-  DEFAULT_CONE_KM_PER_30MIN,
-  haversineDistanceKm,
-  scenarioIntensity,
-  scenarioLightningStrikes,
-  type MockScenario,
-  type MockScenarioName,
-  type MockStormCell,
-} from '../../shared/mockWeatherScenario.js';
 import { useTranslation, type MessageKey } from '../i18n.js';
 import { getBasemapStyleUrl, OSM_RASTER_TILE_URL } from '../lib/basemap.js';
 import { LEVEL_KEYS, LEVEL_SYMBOL, worstLevel, type RiskLevel } from '../lib/risk.js';
@@ -63,17 +46,12 @@ interface MapCanvasProps {
   selectedSoilKey: string | null;
   showSoilLayer: boolean;
   radarFrameTime: number | null;
-  radarProviderId: 'rainviewer' | 'tmd' | 'mock';
+  radarProviderId: 'rainviewer' | 'tmd';
   radarMaxZoom: number;
   lightningSummary: LightningSummary | null;
   stormTracks: StormTrackFeatureCollection | null;
-  stormTrackProviderId: 'gdacs' | 'mock';
-  mockMode: boolean;
-  scenarioName: MockScenarioName;
-  scenarioDate: string;
-  simulationOffsetMin: number;
+  stormTrackProviderId: 'gdacs';
   radarOpacity: number;
-  stormConeKmPer30Min?: number;
   userPosition: UserPosition | null;
   onMapReady: (map: L.Map) => void;
   onBaseTilesFailed: (failed: boolean, fellBackToOsm?: boolean) => void;
@@ -96,165 +74,6 @@ function bindSoilTooltip(
   const soilName = translateSoilName(feature.properties, language, t);
   const texture = translateSoilValue(feature.properties.textureTh, language, t);
   layer.bindTooltip(`${soilName} (${feature.properties.soilCode}) · ${texture}`);
-}
-
-const mockTileFrames = new Map<string, Map<string, HTMLCanvasElement>>();
-const RADAR_TILE_SIZE = 256;
-const RADAR_SAMPLE_SIZE = 80;
-const MAX_CACHED_RADAR_TILES = 48;
-
-function rememberRadarTile(
-  frameKey: string,
-  tileKey: string,
-  tile: HTMLCanvasElement
-): void {
-  const frame = mockTileFrames.get(frameKey);
-  if (!frame) return;
-  frame.delete(tileKey);
-  frame.set(tileKey, tile);
-  mockTileFrames.delete(frameKey);
-  mockTileFrames.set(frameKey, frame);
-
-  let tileCount = [...mockTileFrames.values()].reduce((total, cached) => total + cached.size, 0);
-  while (tileCount > MAX_CACHED_RADAR_TILES) {
-    const oldestFrame = mockTileFrames.entries().next().value;
-    if (!oldestFrame) break;
-    const oldestTileKey = oldestFrame[1].keys().next().value;
-    if (!oldestTileKey) {
-      mockTileFrames.delete(oldestFrame[0]);
-      continue;
-    }
-    oldestFrame[1].delete(oldestTileKey);
-    tileCount -= 1;
-    if (oldestFrame[1].size === 0) {
-      mockTileFrames.delete(oldestFrame[0]);
-    } else {
-      mockTileFrames.delete(oldestFrame[0]);
-      mockTileFrames.set(oldestFrame[0], oldestFrame[1]);
-    }
-  }
-}
-
-class MockRadarGridLayer extends L.GridLayer {
-  private readonly scenario: MockScenario;
-  private readonly offsetMin: number;
-
-  constructor(scenario: MockScenario, offsetMin: number, opacity: number) {
-    super({
-      tileSize: RADAR_TILE_SIZE,
-      opacity,
-      maxNativeZoom: 12,
-      maxZoom: 19,
-      updateWhenIdle: true,
-      keepBuffer: 1,
-    });
-    this.scenario = scenario;
-    this.offsetMin = offsetMin;
-    this.setZIndex(OVERLAY_Z.radar);
-  }
-
-  public createTile(coords: L.Coords): HTMLElement {
-    const frameIndex = Math.max(0, Math.min(36, Math.round((this.offsetMin + 180) / 10)));
-    const frameKey = `${this.scenario.name}:${this.scenario.date}:${frameIndex}`;
-    const tileKey = `${coords.z}/${coords.x}/${coords.y}`;
-    let frame = mockTileFrames.get(frameKey);
-    if (!frame) {
-      frame = new Map<string, HTMLCanvasElement>();
-      mockTileFrames.set(frameKey, frame);
-      while (mockTileFrames.size > 6) {
-        const oldest = mockTileFrames.keys().next().value;
-        if (oldest) mockTileFrames.delete(oldest);
-        else break;
-      }
-    }
-
-    const cached = frame.get(tileKey);
-    const tile = document.createElement('canvas');
-    tile.width = RADAR_TILE_SIZE;
-    tile.height = RADAR_TILE_SIZE;
-    const context = tile.getContext('2d');
-    if (!context) {
-      return tile;
-    }
-    if (cached) {
-      context.drawImage(cached, 0, 0);
-      rememberRadarTile(frameKey, tileKey, cached);
-      return tile;
-    }
-
-    const sample = document.createElement('canvas');
-    sample.width = RADAR_SAMPLE_SIZE;
-    sample.height = RADAR_SAMPLE_SIZE;
-    const sampleContext = sample.getContext('2d');
-    if (!sampleContext) {
-      return tile;
-    }
-    const pixels = sampleContext.createImageData(RADAR_SAMPLE_SIZE, RADAR_SAMPLE_SIZE);
-    const stepPx = RADAR_TILE_SIZE / RADAR_SAMPLE_SIZE;
-    for (let y = 0; y < RADAR_SAMPLE_SIZE; y += 1) {
-      for (let x = 0; x < RADAR_SAMPLE_SIZE; x += 1) {
-        const point = this._map?.unproject(
-          L.point(
-            coords.x * RADAR_TILE_SIZE + (x + 0.5) * stepPx,
-            coords.y * RADAR_TILE_SIZE + (y + 0.5) * stepPx
-          ),
-          coords.z
-        );
-        if (!point) continue;
-        const intensity = scenarioIntensity(
-          this.scenario,
-          point.lat,
-          point.lng,
-          this.offsetMin
-        );
-        const [red, green, blue, alpha] = radarColor(intensity);
-        const index = (y * RADAR_SAMPLE_SIZE + x) * 4;
-        pixels.data[index] = red;
-        pixels.data[index + 1] = green;
-        pixels.data[index + 2] = blue;
-        pixels.data[index + 3] = alpha;
-      }
-    }
-    sampleContext.putImageData(pixels, 0, 0);
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = 'high';
-    context.drawImage(sample, 0, 0, RADAR_TILE_SIZE, RADAR_TILE_SIZE);
-    rememberRadarTile(frameKey, tileKey, tile);
-    return tile;
-  }
-}
-
-/**
- * Smooth meteorological radar ramp:
- * 0 -> fully transparent -> green -> yellow -> red -> purple (extreme).
- */
-export function radarColor(intensity: number): [number, number, number, number] {
-  const ramp: Array<[number, [number, number, number, number]]> = [
-    [0.12, [34, 197, 94, 0]],
-    [1.2, [34, 197, 94, 115]],
-    [4.5, [74, 222, 128, 155]],
-    [11, [250, 204, 21, 185]],
-    [22, [249, 115, 22, 205]],
-    [38, [239, 68, 68, 220]],
-    [58, [168, 85, 247, 234]],
-    [85, [147, 51, 234, 242]],
-  ];
-  if (!Number.isFinite(intensity) || intensity <= ramp[0]![0]) return [0, 0, 0, 0];
-  for (let index = 1; index < ramp.length; index += 1) {
-    const before = ramp[index - 1]!;
-    const after = ramp[index]!;
-    if (intensity <= after[0]) {
-      const ratio = (intensity - before[0]) / (after[0] - before[0]);
-      return [
-        Math.round(before[1][0] + (after[1][0] - before[1][0]) * ratio),
-        Math.round(before[1][1] + (after[1][1] - before[1][1]) * ratio),
-        Math.round(before[1][2] + (after[1][2] - before[1][2]) * ratio),
-        Math.round(before[1][3] + (after[1][3] - before[1][3]) * ratio),
-      ];
-    }
-  }
-  const top = ramp[ramp.length - 1]![1];
-  return [top[0], top[1], top[2], top[3]];
 }
 
 interface MapOverlayErrorBoundaryProps extends PropsWithChildren {
@@ -288,314 +107,6 @@ class MapOverlayErrorBoundary extends Component<
       this.props.children
     );
   }
-}
-
-function MockRadarOverlay({
-  scenario,
-  offsetMin,
-  opacity,
-}: {
-  scenario: MockScenario;
-  offsetMin: number;
-  opacity: number;
-}): null {
-  const map = useMap();
-  useEffect(() => {
-    const layer = new MockRadarGridLayer(scenario, offsetMin, opacity);
-    layer.addTo(map);
-    return () => {
-      map.removeLayer(layer);
-    };
-  }, [map, offsetMin, scenario]);
-
-  useEffect(() => {
-    map.eachLayer((layer) => {
-      if (layer instanceof MockRadarGridLayer) {
-        layer.setOpacity(opacity);
-      }
-    });
-  }, [map, opacity]);
-
-  return null;
-}
-
-function intensityLabel(peak: number): string {
-  if (peak >= 40) return 'ฝนหนักมาก';
-  if (peak >= 20) return 'ฝนแรง';
-  if (peak >= 8) return 'ฝนปานกลาง';
-  return 'ฝนเบา';
-}
-
-function headingText(cell: MockStormCell): string {
-  const angle = ((Math.atan2(cell.vxKmH, cell.vyKmH) * 180) / Math.PI + 360) % 360;
-  const directions = [
-    'ทิศเหนือ',
-    'ทิศตะวันออกเฉียงเหนือ',
-    'ทิศตะวันออก',
-    'ทิศตะวันออกเฉียงใต้',
-    'ทิศใต้',
-    'ทิศตะวันตกเฉียงใต้',
-    'ทิศตะวันตก',
-    'ทิศตะวันตกเฉียงเหนือ',
-  ];
-  return directions[Math.round(angle / 45) % directions.length] ?? 'ทิศเหนือ';
-}
-
-function cellEta(
-  cell: MockStormCell,
-  lat: number,
-  lon: number,
-  offsetMin: number
-): number | null {
-  for (let elapsed = 0; elapsed <= 180; elapsed += 5) {
-    if (!activeCell(cell, offsetMin + elapsed)) continue;
-    const position = cellPosition(cell, offsetMin + elapsed);
-    if (haversineDistanceKm(lat, lon, position.lat, position.lon) <= cell.radiusKm) {
-      return elapsed;
-    }
-  }
-  return null;
-}
-
-function MockStormLayer({
-  scenario,
-  offsetMin,
-  selectedPoint,
-  coneKmPer30Min,
-}: {
-  scenario: MockScenario;
-  offsetMin: number;
-  selectedPoint: UserPosition | null;
-  coneKmPer30Min: number;
-}): React.ReactNode {
-  const { t } = useTranslation();
-  const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
-
-  const active = useMemo(
-    () =>
-      scenario.cells.filter((cell) => {
-        if (cell.peakMmHr < 3 || !activeCell(cell, offsetMin)) return false;
-        const pos = cellPosition(cell, offsetMin);
-        return cellIntensity(cell, pos.lat, pos.lon, offsetMin) >= 3;
-      }),
-    [offsetMin, scenario]
-  );
-
-  const effectiveSelectedId = useMemo(() => {
-    if (selectedCellId && active.some((cell) => cell.id === selectedCellId)) {
-      return selectedCellId;
-    }
-    if (!selectedPoint || active.length === 0) return active[0]?.id ?? null;
-    let closestId = active[0]!.id;
-    let bestDist = Infinity;
-    for (const cell of active) {
-      const pos = cellPosition(cell, offsetMin);
-      const dist = haversineDistanceKm(selectedPoint.lat, selectedPoint.lon, pos.lat, pos.lon);
-      if (dist < bestDist) {
-        bestDist = dist;
-        closestId = cell.id;
-      }
-    }
-    return closestId;
-  }, [active, offsetMin, selectedCellId, selectedPoint]);
-
-  return (
-    <>
-      {active.map((cell) => {
-        const isSelected = cell.id === effectiveSelectedId;
-        const track = buildStormTrackAndCone(cell, offsetMin, coneKmPer30Min);
-        const heading = headingText(cell);
-        const eta = selectedPoint
-          ? cellEta(cell, selectedPoint.lat, selectedPoint.lon, offsetMin)
-          : null;
-        const speed = Math.round(Math.hypot(cell.vxKmH, cell.vyKmH));
-        const label = `${intensityLabel(cell.peakMmHr)} · ~${speed} กม./ชม.`;
-        const detail =
-          eta === null
-            ? 'ไม่ผ่านจุดที่เลือก'
-            : eta === 0
-              ? 'กำลังปกคลุมพื้นที่'
-              : `อาจถึงในอีกประมาณ ${eta} นาที`;
-
-        const icon = L.divIcon({
-          className: 'mock-storm-wrapper',
-          html: `<span class="mock-storm-dot${isSelected ? ' is-selected' : ''}" aria-hidden="true">⛈</span>`,
-          iconSize: [24, 24],
-          iconAnchor: [12, 12],
-        });
-
-        return (
-          <Fragment key={cell.id}>
-            <Circle
-              center={[track.center.lat, track.center.lon]}
-              radius={cell.radiusKm * 1000}
-              pathOptions={{
-                color: isSelected ? '#7dd3fc' : '#94a3b8',
-                weight: isSelected ? 1.2 : 0.8,
-                opacity: isSelected ? 0.45 : 0.18,
-                fillColor: isSelected ? '#38bdf8' : '#64748b',
-                fillOpacity: isSelected ? 0.06 : 0.02,
-              }}
-            />
-
-            <Polygon
-              positions={track.conePolygon}
-              pathOptions={{
-                color: isSelected ? '#38bdf8' : '#94a3b8',
-                weight: isSelected ? 1.8 : 1,
-                opacity: isSelected ? 0.88 : 0.26,
-                dashArray: '6 5',
-                fillColor: isSelected ? '#38bdf8' : '#94a3b8',
-                fillOpacity: isSelected ? 0.14 : 0.04,
-              }}
-              eventHandlers={{
-                click: (event) => {
-                  L.DomEvent.stopPropagation(event);
-                  setSelectedCellId(cell.id);
-                },
-              }}
-            >
-              <Tooltip sticky direction="top" className="glass-leaflet-tooltip">
-                {t('coneOfUncertainty')}
-              </Tooltip>
-            </Polygon>
-
-            <Polyline
-              positions={track.centreline}
-              pathOptions={{
-                color: isSelected ? '#e0f2fe' : '#cbd5e1',
-                weight: isSelected ? 2.2 : 1.2,
-                opacity: isSelected ? 0.95 : 0.3,
-              }}
-            />
-
-            {track.forecastDots.map((dot) => (
-              <CircleMarker
-                key={`${cell.id}-dot-${dot.stepMin}`}
-                center={[dot.lat, dot.lon]}
-                radius={isSelected ? 4 : 2.5}
-                pathOptions={{
-                  color: '#0f172a',
-                  weight: isSelected ? 1.5 : 1,
-                  opacity: isSelected ? 0.95 : 0.35,
-                  fillColor: isSelected ? '#7dd3fc' : '#cbd5e1',
-                  fillOpacity: isSelected ? 0.95 : 0.38,
-                }}
-                eventHandlers={{
-                  click: (event) => {
-                    L.DomEvent.stopPropagation(event);
-                    setSelectedCellId(cell.id);
-                  },
-                }}
-              >
-                <Tooltip direction="top" className="glass-leaflet-tooltip">
-                  +{dot.stepMin} นาที (±{dot.halfWidthKm.toFixed(1)} กม.)
-                </Tooltip>
-              </CircleMarker>
-            ))}
-
-            <Marker
-              position={[track.center.lat, track.center.lon]}
-              icon={icon}
-              title={`พายุจำลอง · ${label}`}
-              alt={`พายุจำลอง · ${label}`}
-              zIndexOffset={isSelected ? 450 : 100}
-              eventHandlers={{
-                click: () => setSelectedCellId(cell.id),
-              }}
-            >
-              <Tooltip direction="top" className="glass-leaflet-tooltip">
-                {label} · {t('coneOfUncertainty')}
-              </Tooltip>
-              <Popup>
-                <strong>พายุฝนฟ้าคะนองจำลอง · {intensityLabel(cell.peakMmHr)}</strong>
-                <br />
-                เคลื่อนไปทาง{heading} ~{speed} กม./ชม.
-                <br />
-                {detail} · {t('coneOfUncertainty')}
-              </Popup>
-            </Marker>
-          </Fragment>
-        );
-      })}
-    </>
-  );
-}
-
-function MockLightningLayer({
-  scenario,
-  offsetMin,
-  selectedPoint,
-}: {
-  scenario: MockScenario;
-  offsetMin: number;
-  selectedPoint: UserPosition | null;
-}): React.ReactNode {
-  const map = useMap();
-  const [zoom, setZoom] = useState(map.getZoom());
-  useMapEvents({ zoomend: () => setZoom(map.getZoom()) });
-  const strikes = useMemo(() => scenarioLightningStrikes(scenario, offsetMin), [offsetMin, scenario]);
-
-  const rendered = useMemo(() => {
-    if (zoom >= 12) return strikes.map((strike) => ({ key: strike.id, strikes: [strike] }));
-    const cellPx = zoom <= 8 ? 64 : 52;
-    const groups = new Map<string, typeof strikes>();
-    for (const strike of strikes) {
-      const pixel = map.project([strike.lat, strike.lon], zoom);
-      const key = `${Math.floor(pixel.x / cellPx)}:${Math.floor(pixel.y / cellPx)}`;
-      groups.set(key, [...(groups.get(key) ?? []), strike]);
-    }
-    return [...groups].map(([key, group]) => ({ key, strikes: group }));
-  }, [map, strikes, zoom]);
-
-  return (
-    <>
-      {rendered.map(({ key, strikes: group }) => {
-        const strike = group[0];
-        if (!strike) return null;
-        const minAge = Math.min(...group.map((item) => Math.max(0, offsetMin - item.timeOffsetMin)));
-        const ageClass = minAge <= 5 ? 'recent' : minAge <= 15 ? 'mid' : 'old';
-        const ageLabel = minAge <= 5 ? '0–5 นาที' : minAge <= 15 ? '5–15 นาที' : '15–30 นาที';
-        const isCluster = group.length > 1;
-        const icon = L.divIcon({
-          className: 'mock-lightning-wrapper',
-          html: `<span class="mock-lightning-chip mock-lightning-${ageClass}" aria-hidden="true">⚡${
-            isCluster ? `<span class="mock-lightning-count">${group.length}</span>` : ''
-          }</span>`,
-          iconSize: [isCluster ? 34 : 24, 24],
-          iconAnchor: [isCluster ? 17 : 12, 12],
-        });
-        const time = new Intl.DateTimeFormat('th-TH', {
-          hour: '2-digit',
-          minute: '2-digit',
-          timeZone: 'Asia/Bangkok',
-        }).format(new Date(Date.now() + strike.timeOffsetMin * 60_000));
-        const avgLat = group.reduce((sum, item) => sum + item.lat, 0) / group.length;
-        const avgLon = group.reduce((sum, item) => sum + item.lon, 0) / group.length;
-        const distance = selectedPoint
-          ? haversineDistanceKm(selectedPoint.lat, selectedPoint.lon, avgLat, avgLon)
-          : null;
-        return (
-          <Marker
-            key={key}
-            position={[avgLat, avgLon]}
-            icon={icon}
-            title={`ฟ้าผ่าจำลอง ${time} · ${ageLabel}${isCluster ? ` (${group.length} จุด)` : ''}`}
-            alt={`ฟ้าผ่าจำลอง ${ageLabel}`}
-          >
-            <Tooltip direction="top" className="glass-leaflet-tooltip">
-              ⚡ {isCluster ? `${group.length} จุด · ` : ''}{ageLabel}
-            </Tooltip>
-            <Popup>
-              ฟ้าผ่าจำลอง {time} · {ageLabel}
-              {distance === null ? '' : ` · ห่าง ${distance.toFixed(1)} กม. จากจุดที่เลือก`}
-              {isCluster ? ` · รวม ${group.length} จุด` : ''}
-            </Popup>
-          </Marker>
-        );
-      })}
-    </>
-  );
 }
 
 const iconCache = new Map<string, L.DivIcon>();
@@ -880,12 +391,7 @@ export function MapCanvas({
   lightningSummary,
   stormTracks,
   stormTrackProviderId,
-  mockMode,
-  scenarioName,
-  scenarioDate,
-  simulationOffsetMin,
   radarOpacity,
-  stormConeKmPer30Min = DEFAULT_CONE_KM_PER_30MIN,
   userPosition,
   onMapReady,
   onBaseTilesFailed,
@@ -900,10 +406,6 @@ export function MapCanvas({
   const reduceMotion = useMemo(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     []
-  );
-  const scenario = useMemo(
-    () => (mockMode ? createMockScenario(scenarioName, scenarioDate) : null),
-    [mockMode, scenarioDate, scenarioName]
   );
   const configuredStyleUrl = getBasemapStyleUrl(
     import.meta.env.VITE_BASEMAP_PROVIDER,
@@ -928,14 +430,14 @@ export function MapCanvas({
     () =>
       communities[0]
         ? [communities[0].lat, communities[0].lon]
-        : [13.7563, 100.5018],
+        : [DEFAULT_INITIAL_POINT.lat, DEFAULT_INITIAL_POINT.lon],
     // Only compute initial center once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
   useEffect(() => {
-    if (mockMode || !overlays.has('radar')) return undefined;
+    if (!overlays.has('radar')) return undefined;
     let timer: number | null = null;
     const startTimer = (): void => {
       if (timer !== null) window.clearInterval(timer);
@@ -954,7 +456,7 @@ export function MapCanvas({
       if (timer !== null) window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [mockMode, overlays]);
+  }, [overlays]);
 
   const items = useMemo<MarkerItem[]>(
     () =>
@@ -1003,26 +505,25 @@ export function MapCanvas({
             }}
           />
         )}
-        {!mockMode &&
-          [...overlays].map((layer) => {
-            if (layer === 'radar' && radarFrameTime === null) return null;
-            if (layer !== 'radar') return null;
-            const tileUrl = `/api/radar/tiles/{z}/{x}/{y}/${radarFrameTime}.png`;
-            return (
+        {[...overlays].map((layer) => {
+          if (layer === 'radar' && radarFrameTime === null) return null;
+          if (layer !== 'radar') return null;
+          const tileUrl = `/api/radar/tiles/{z}/{x}/{y}/${radarFrameTime}.png`;
+          return (
             <MapOverlayErrorBoundary key={layer} fallback={t('mapOverlayError')}>
               <TileLayer
                 key={`${layer}-${radarRefreshVersion}-${radarProviderId}-${radarFrameTime}`}
                 url={tileUrl}
-                opacity={layer === 'radar' ? radarOpacity : 0.9}
+                opacity={radarOpacity}
                 zIndex={OVERLAY_Z[layer]}
-                maxNativeZoom={layer === 'radar' ? radarMaxZoom : 12}
+                maxNativeZoom={radarMaxZoom}
                 maxZoom={19}
                 errorTileUrl={BLANK_TILE}
               />
             </MapOverlayErrorBoundary>
-            );
-          })}
-        {!mockMode && overlays.has('storm') && stormTrackProviderId === 'gdacs' && stormTracks && (
+          );
+        })}
+        {overlays.has('storm') && stormTrackProviderId === 'gdacs' && stormTracks && (
           <GeoJSON
             data={stormTracks}
             style={(feature) => ({
@@ -1031,9 +532,17 @@ export function MapCanvas({
               fillColor: '#f97316',
               fillOpacity: 0.12,
             })}
+            onEachFeature={(feature, layer) => {
+              const name = String(feature.properties?.['eventname'] ?? '').trim();
+              const label = String(feature.properties?.['polygonlabel'] ?? '').trim();
+              const text = [name, label].filter(Boolean).join(' · ');
+              if (text) {
+                layer.bindTooltip(text, { className: 'glass-leaflet-tooltip', sticky: true });
+              }
+            }}
           />
         )}
-        {!mockMode && overlays.has('lightning') &&
+        {overlays.has('lightning') &&
           userPosition && lightningSummary?.count30min !== null &&
           lightningSummary?.count30min !== undefined && (
             <CircleMarker
@@ -1048,34 +557,6 @@ export function MapCanvas({
               </Tooltip>
             </CircleMarker>
           )}
-        {mockMode && scenario && overlays.has('radar') && (
-          <MapOverlayErrorBoundary fallback={t('mapOverlayError')}>
-            <MockRadarOverlay
-              scenario={scenario}
-              offsetMin={simulationOffsetMin}
-              opacity={radarOpacity}
-            />
-          </MapOverlayErrorBoundary>
-        )}
-        {mockMode && scenario && overlays.has('storm') && (
-          <MapOverlayErrorBoundary fallback={t('mapOverlayError')}>
-            <MockStormLayer
-              scenario={scenario}
-              offsetMin={simulationOffsetMin}
-              selectedPoint={userPosition}
-              coneKmPer30Min={stormConeKmPer30Min}
-            />
-          </MapOverlayErrorBoundary>
-        )}
-        {mockMode && scenario && overlays.has('lightning') && (
-          <MapOverlayErrorBoundary fallback={t('mapOverlayError')}>
-            <MockLightningLayer
-              scenario={scenario}
-              offsetMin={simulationOffsetMin}
-              selectedPoint={userPosition}
-            />
-          </MapOverlayErrorBoundary>
-        )}
         {showSoilLayer && soilLayer && (
           <GeoJSON
             key={`soil-layer-${language}`}

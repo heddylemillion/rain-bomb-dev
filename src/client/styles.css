@@ -186,6 +186,51 @@ button:disabled {
   transition: opacity 120ms ease;
 }
 
+.chat-drawer {
+  box-shadow: -16px 0 42px rgb(0 0 0 / 0.45);
+}
+
+.chat-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.chat-divider::before,
+.chat-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid rgb(255 255 255 / 0.25);
+}
+
+.chat-typing-dots {
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.chat-typing-dots i {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 9999px;
+  background: #7dd3fc;
+  animation: chat-typing 1s infinite ease-in-out alternate;
+}
+
+.chat-typing-dots i:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.chat-typing-dots i:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes chat-typing {
+  to { opacity: 0.35; transform: translateY(-2px); }
+}
+
 /* ==========================================================================
    Risk Semantic Badges (Red / Amber-Orange / Green ONLY for Risk Levels)
    ========================================================================== */
@@ -476,6 +521,7 @@ button:disabled {
 
 :root[data-contrast='high'] .glass-panel,
 :root[data-contrast='high'] .glass-drawer,
+:root[data-contrast='high'] .chat-drawer,
 :root[data-contrast='high'] .glass-subcard,
 :root[data-contrast='high'] .glass-watermark,
 :root[data-contrast='high'] .glass-tooltip,
@@ -486,6 +532,11 @@ button:disabled {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
+}
+
+:root[data-contrast='high'] .chat-divider::before,
+:root[data-contrast='high'] .chat-divider::after {
+  border-color: #ffffff;
 }
 
 :root[data-contrast='high'] .glass-control-btn,
