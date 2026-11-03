@@ -209,9 +209,7 @@ export function StatusCard({
   retrySoil,
 }: StatusCardProps): React.ReactNode {
   const { t, language } = useTranslation();
-  const [collapsed, setCollapsed] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? !window.matchMedia('(min-width: 1024px)').matches : false
-  );
+  const [collapsed, setCollapsed] = useState(true);
   const [speaking, setSpeaking] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const lastAnnounced = useRef('');

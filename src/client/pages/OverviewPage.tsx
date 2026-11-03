@@ -32,50 +32,22 @@ import { MapControls, RadarSlider } from '../components/MapOverlays.js';
 import { SideBar, type SideLayerId, type SideLayerItem } from '../components/SideBar.js';
 import { StatusCard } from '../components/StatusCard.js';
 import { useTranslation } from '../i18n.js';
-import { writeStorage } from '../lib/storage.js';
+import {
+  initialPlace,
+  isValidPlaceCoordinates,
+  LAST_SELECTED_PLACE_KEY,
+  type SelectedPlace,
+} from '../lib/selectedPlace.js';
+import { readStorage, writeStorage } from '../lib/storage.js';
 
 const LOCATION_CHOICE_KEY = 'rain-burst-location-choice';
-const THAILAND_BOUNDS = { minLat: 5.5, maxLat: 20.5, minLon: 97, maxLon: 106 };
 
 const ignoreSearchOpenChange = (): void => undefined;
-
-interface SelectedPlace {
-  lat: number;
-  lon: number;
-  name: string;
-  address?: string | undefined;
-}
 
 export interface RuntimeConfigData {
   demoMode: boolean;
   dataMode: 'live' | 'mock' | 'cache';
   stormConeKmPer30Min: number;
-}
-
-function isInThailand(lat: number, lon: number): boolean {
-  return (
-    lat >= THAILAND_BOUNDS.minLat &&
-    lat <= THAILAND_BOUNDS.maxLat &&
-    lon >= THAILAND_BOUNDS.minLon &&
-    lon <= THAILAND_BOUNDS.maxLon
-  );
-}
-
-function initialPlace(params: URLSearchParams, defaultName: string): SelectedPlace {
-  const rawLat = params.get('lat');
-  const rawLon = params.get('lon');
-  if (rawLat !== null && rawLon !== null) {
-    const lat = Number(rawLat);
-    const lon = Number(rawLon);
-    if (Number.isFinite(lat) && Number.isFinite(lon) && isInThailand(lat, lon)) {
-      return { lat, lon, name: params.get('name') || 'ตำแหน่งที่แชร์' };
-    }
-  }
-  return {
-    lat: DEFAULT_DEMO_POINT.lat,
-    lon: DEFAULT_DEMO_POINT.lon,
-    name: defaultName,
-  };
 }
 
 function makePointCommunity(place: SelectedPlace): Community {
@@ -134,7 +106,15 @@ export function OverviewPage({
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [place, setPlace] = useState<SelectedPlace>(() =>
-    initialPlace(searchParams, t('defaultDemoAreaName'))
+    initialPlace(
+      searchParams,
+      {
+        lat: DEFAULT_DEMO_POINT.lat,
+        lon: DEFAULT_DEMO_POINT.lon,
+        name: t('defaultDemoAreaName'),
+      },
+      readStorage(LAST_SELECTED_PLACE_KEY)
+    )
   );
   const [isMobile, setIsMobile] = useState<boolean>(() =>
     typeof window !== 'undefined' ? !window.matchMedia('(min-width: 768px)').matches : false
@@ -158,6 +138,10 @@ export function OverviewPage({
   const [focusSearchRequest, setFocusSearchRequest] = useState(0);
   const mapRef = useRef<L.Map | null>(null);
   const reverseRequestId = useRef(0);
+
+  useEffect(() => {
+    writeStorage(LAST_SELECTED_PLACE_KEY, JSON.stringify(place));
+  }, [place]);
 
   const focusSearch = useCallback((): void => {
     setFocusSearchRequest((value) => value + 1);
@@ -185,7 +169,7 @@ export function OverviewPage({
     if (rawLat !== null && rawLon !== null) {
       const lat = Number(rawLat);
       const lon = Number(rawLon);
-      if (Number.isFinite(lat) && Number.isFinite(lon) && isInThailand(lat, lon)) {
+      if (isValidPlaceCoordinates(lat, lon)) {
         const nextName = searchParams.get('name') || place.name;
         if (
           Math.abs(lat - place.lat) > 1e-5 ||
@@ -312,7 +296,7 @@ export function OverviewPage({
 
   const choosePoint = useCallback(
     (lat: number, lon: number, name: string, address?: string): void => {
-      if (!isInThailand(lat, lon)) {
+      if (!isValidPlaceCoordinates(lat, lon)) {
         setLocationMessage(t('pointOutsideThailand'));
         return;
       }
@@ -348,7 +332,7 @@ export function OverviewPage({
 
   const reverseAndChoose = useCallback(
     async (lat: number, lon: number, fallback: string): Promise<void> => {
-      if (!isInThailand(lat, lon)) {
+      if (!isValidPlaceCoordinates(lat, lon)) {
         setLocationMessage(t('pointOutsideThailand'));
         return;
       }
